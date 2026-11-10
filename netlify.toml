@@ -1,3 +1,9 @@
+# Netlify publishes the ready-built game straight from the main folder. No build step.
 [build]
-  command = "python3 build.py"
-  publish = "dist"
+  publish = "."
+  command = ""
+
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
