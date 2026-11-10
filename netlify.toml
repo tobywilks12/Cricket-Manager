@@ -1,9 +1,4 @@
-# Netlify publishes the ready-built game straight from the main folder. No build step.
+# Netlify runs build.py, which copies the ready-built game into dist and publishes it.
 [build]
-  publish = "."
-  command = ""
-
-[[headers]]
-  for = "/sw.js"
-  [headers.values]
-    Cache-Control = "no-cache"
+  command = "python3 build.py"
+  publish = "dist"
