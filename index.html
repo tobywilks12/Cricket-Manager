@@ -2403,7 +2403,7 @@ function recordMatch(c, m, comp, opt) {
   });
   // injuries
   m.injuries.forEach(inj => {
-    const P = P_(c, inj.name); if (!P) return;
+    const P = P_(c, inj.name); if (!P || (c.cm && c.cm.noInj && P.nat === 'AUS')) return;
     const wk = inj.what.includes('back') ? rint(6, 14) : inj.what.includes('side') ? rint(4, 8) : rint(2, 6);
     P.injury = { what: inj.what.replace(/^an? /, ''), weeks: wk };
     if (P.nat === 'AUS') news(c, `Injury: ${P.name} (${P.state || 'AUS'}) is out for about ${wk} weeks with ${inj.what}.`, 'bad');
@@ -2664,7 +2664,7 @@ function passWeeks(c, wk) {
 }
 function randomInjuries(c, weeks) {
   NATIONS.forEach(code => c.players[code].forEach(p => {
-    if (p.injury || p.retired) return;
+    if (p.injury || p.retired || (c.cm && c.cm.noInj && code === 'AUS')) return;
     const pace = p.bowl && isPace(p.bowl.type);
     if (Math.random() < weeks * 0.0018 * (pace ? 1.6 : 0.8) * (p.prone || 1)) {
       const what = pick(pace ? ['back stress', 'side strain', 'hamstring strain', 'ankle injury'] : ['hamstring strain', 'broken finger', 'calf strain']);
@@ -2804,7 +2804,7 @@ function seasonEnd(c, y) {
       let pr = base * (o >= 85 ? 0.5 : o < 70 ? 1.5 : 1) + (p.age >= 41 ? 0.4 : 0);
       if (p.farewell) pr = p.farewell.y <= y ? 1 : 0;
       else if (code === 'AUS' && o >= 76 && p.age >= 33 && pr > 0.05 && Math.random() < 0.55) pr = 0; // the big names announce first (see farewellAnnounce)
-      if (p.age >= 27 && o < 58 && potential(p) < 64) pr = 0.6;
+      if (p.age >= 27 && o < 58 && potential(p) < 64 && (p.peak || 0) < 70) pr = 0.6;
       if (code === 'AUS' && (p.morale || 65) < 30 && p.age >= 31 && !(c.contracts || []).includes(p.name)) pr += 0.25;
       if (Math.random() < pr) {
         list.splice(list.indexOf(p), 1);
@@ -2828,12 +2828,15 @@ function seasonEnd(c, y) {
   // trim lists
   STATE_CODES.forEach(s => {
     const sq = statePool(c, s);
-    if (sq.length > 28) sq.sort((a, b) => (overall(a) + potential(a) * 0.5) - (overall(b) + potential(b) * 0.5)).slice(0, sq.length - 28).forEach(p => { c.players.AUS.splice(c.players.AUS.indexOf(p), 1); });
+    // 5.8.1: established players (CA contract, or a peak of 75+) are never trimmed
+    const safe = p => (c.contracts || []).includes(p.name) || (p.peak || 0) >= 75 || (p.peakWB || 0) >= 75 || (p.age <= 23 && !!srcPlayer(p.name)); // 5.8.2: real young prospects are kept too
+    const cuttable = sq.filter(p => !safe(p));
+    if (sq.length > 28) cuttable.sort((a, b) => (overall(a) + potential(a) * 0.5) - (overall(b) + potential(b) * 0.5)).slice(0, Math.min(cuttable.length, sq.length - 28)).forEach(p => { c.players.AUS.splice(c.players.AUS.indexOf(p), 1); });
   });
   NATIONS.filter(n => n !== 'AUS').forEach(code => {
     const l = c.players[code];
     const core = l.filter(p => !p.dt), dom = l.filter(p => p.dt);
-    if (core.length > 24) { core.sort((a, b) => (overall(b) + potential(b) * 0.4) - (overall(a) + potential(a) * 0.4)); const cut = new Set(core.slice(24).map(p => p.name)); const keep = l.filter(p => !cut.has(p.name) || p.age <= 23); l.length = 0; keep.forEach(p => l.push(p)); }
+    if (core.length > 24) { core.sort((a, b) => (overall(b) + potential(b) * 0.4) - (overall(a) + potential(a) * 0.4)); const cut = new Set(core.slice(24).map(p => p.name)); const keep = l.filter(p => !cut.has(p.name) || p.age <= 23 || (p.peak || 0) >= 80); l.length = 0; keep.forEach(p => l.push(p)); }
     void dom;
   });
   // Shield history and new season
@@ -3509,7 +3512,7 @@ function bblPool(c, k, unavail) {
 }
 function playBBL(c, home, away, unavail, venueKey, ko, user) {
   const vk = venueKey || BBL_CLUBS[home].home, venue = VENUES[vk];
-  const m = createMatchLO({ fmt: 't20', home, away, venue, venueKey: vk, xi: { [home]: domesticXI(c, bblPool(c, home, unavail), 't20', venue, null, 3), [away]: domesticXI(c, bblPool(c, away, unavail), 't20', venue, null, 3) },
+  const m = createMatchLO({ fmt: 't20', home, away, venue, venueKey: vk, xi: { [home]: domesticXI(c, bblPool(c, home, unavail), 't20', venue, null, c.cm && c.cm.noOS ? 99 : 3), [away]: domesticXI(c, bblPool(c, away, unavail), 't20', venue, null, c.cm && c.cm.noOS ? 99 : 3) },
     userTeam: user || 'none', TEAMS: loTeamsMap({ [home]: BBL_CLUBS[home].name, [away]: BBL_CLUBS[away].name }), quiet: !user, comp: 'bbl', superOver: true, knockout: !!ko });
   if (user) return m;
   simQuick(m);
@@ -4022,8 +4025,8 @@ function bblOffer(c, name, sal, yrs) {
   const cl = c.bbl.clubs[k];
   if (cl.squad.includes(name)) return { ok: false, msg: `${name} is already on your list.` };
   if (bblSigned(c).has(name)) return { ok: false, msg: `${name} is contracted to another club.` };
-  if (cl.squad.length >= BBL_MAX) return { ok: false, msg: `Your list is full (${BBL_MAX}). Release someone first.` };
-  if (bblPayroll(c, k) + sal > bblCap(c)) return { ok: false, msg: `That would take you over the salary cap (${money(bblCap(c))}).` };
+  if (cl.squad.length >= BBL_MAX && !(c.cm && c.cm.noCap)) return { ok: false, msg: `Your list is full (${BBL_MAX}). Release someone first.` };
+  if (bblPayroll(c, k) + sal > bblCap(c) && !(c.cm && c.cm.noCap)) return { ok: false, msg: `That would take you over the salary cap (${money(bblCap(c))}).` };
   if (!c.bblTalks) c.bblTalks = {};
   const tries = c.bblTalks[name] || 0; if (tries >= 3) return { ok: false, msg: `${surname(name)}'s manager has stopped taking your calls this off-season.` };
   c.bblTalks[name] = tries + 1;
@@ -4383,7 +4386,7 @@ function coachReview(c) {
   if (conf < 8) {
     c.strikes = (c.strikes || 0) + 1;
     news(c, `Board: an emergency meeting has been called about your future. Confidence is ${Math.round(conf)}%.`, 'bad');
-    if (c.strikes >= 2 && Math.random() < 0.5 && !c.sacked) { c.sacked = { d: c.date, y: curSeason(c) }; news(c, 'Board: you have been sacked as Australia coach.', 'bad'); }
+    if (c.strikes >= 2 && Math.random() < 0.5 && !c.sacked && !(c.cm && c.cm.noSack)) { c.sacked = { d: c.date, y: curSeason(c) }; news(c, 'Board: you have been sacked as Australia coach.', 'bad'); }
   } else if (conf >= 20) c.strikes = 0;
 }
 const OFFER_NATIONS = ['ENG', 'IND', 'SA', 'NZ', 'PAK', 'SL', 'WI', 'BAN', 'ZIM', 'IRE', 'AFG'];
@@ -4933,7 +4936,27 @@ function hofOnTrack(c) {
   NATIONS.forEach(code => c.players[code].forEach(p => { if (p.retired) return; const L = hofLines(c, p.name), why = hofWhy(c, p.name, L); if (why.length) out.push({ n: p.name, nat: code, why, lines: L, age: p.age }); }));
   return out;
 }
+// 5.8.1: real players removed by the season-end list trim while their ratings were broken (the 5.6 null bug)
+function restoreLost(c) {
+  if (c.lostFix && c.lostFix2) return;
+  const young = !!c.lostFix; c.lostFix = true; c.lostFix2 = true; // 5.8.2: second pass for real young prospects
+  const have = new Set(); NATIONS.forEach(n => c.players[n].forEach(p => have.add(p.name)));
+  const gone = new Set([...(c.retiredStars || []).map(r => r.name), ...Object.keys(c.retC || {})]);
+  const yrs = curSeason(c) - 2026, back = [];
+  NATIONS.forEach(code => TEAMS[code].squad.forEach(src => {
+    if (have.has(src.name) || gone.has(src.name) || src.age + yrs > 31) return;
+    if (overall(src) < 74 && !(code === 'AUS' && src.age + yrs <= 23)) return;
+    if (young && overall(src) >= 74) return;
+    const p = JSON.parse(JSON.stringify(src));
+    wbPrep(p); p.potRaw = Math.max(overall(p), p.potRaw || overall(p)); p.peak = Math.max(p.peak || 0, potential(p));
+    p.age = src.age + yrs; p.nat = code; p.hist = [{ y: 2026, o: overall(p), p: potential(p) }]; p.sp = { n: 0, sum: 0 };
+    p.morale = 60; p.lead = defaultLead(p); p.restored = true;
+    c.players[code].push(p); back.push(p.name);
+  }));
+  if (back.length) { bump(c); news(c, `Restored to the game after a bug removed them: ${back.join(', ')}. Their ratings are back to their 2026 levels; their stats from before the bug could not be recovered.`, 'big'); }
+}
 function migrate58(c) {
+  try { restoreLost(c); } catch (e) { console.warn(e); }
   hofSeed(c);
   if (!c.hon) {
     c.hon = {};
@@ -4985,7 +5008,7 @@ const injTag = p => p.injury ? `<span class="inj" title="${esc(p.injury.what)}">
 const avgS = s => s.inn - s.no > 0 ? (s.runs / (s.inn - s.no)).toFixed(2) : (s.inn ? '-' : '-');
 
 // Saves are compressed (lz-string), about 7 times smaller than raw JSON. Old uncompressed saves still load.
-const GAME_VERSION = '5.8', SAVE_VERSION = 6;
+const GAME_VERSION = '5.9', SAVE_VERSION = 6;
 const CHANGELOG = [
   ['5.7', ['Fatigue now carries between Tests: heavy bowling workloads leave quicks below 100 for the next match, and tired players carry a higher injury risk (see Pathway, Fast-bowler workloads).', 'Media and board pressure only applies to genuine contenders, and it costs far less.', 'Player growth rebalanced: playing (especially Tests and Australia A) now always beats sitting on the bench.', 'Coach domestic matches using state abbreviations, with a Change team button.', 'Bowlers show their wickets per innings in selection, not their batting.', 'Your BBL club never plays without you: each match asks you to coach or simulate it, the matches show on the calendar in purple, and you get alerts when free agency and the draft open. You can also choose to have no club.', 'Recruit overseas players to Australia (Pathway, Overseas recruits): they qualify after three years.', 'Hidden editor: search any player and change nationality, state, BBL club, domestic team, contract, role and more, plus board confidence and reputation.', 'Player of the series and tournament, with live series leaders on the series screen.', 'Awards night and year in review at the end of every season (Allan Border Medal and more). Season stats reset each year; career stats are kept.']],
   ['5.6.1', ['Fixed bowlers showing NaN ratings after a franchise league or Australia A tour. Affected players are repaired automatically.', 'Press conferences no longer ask why an injured player was left out.']],
@@ -5065,6 +5088,7 @@ function render() {
   bindAll();
   if (typeof bind52 === 'function') bind52();
   if (typeof bind58 === 'function') bind58();
+  if (typeof bind59 === 'function') bind59();
   if (typeof tableSortApply === 'function') tableSortApply();
 }
 function openModal(fn) { modalFn = fn; render(); }
@@ -6701,6 +6725,280 @@ function bind58() {
   on('[data-hof]', 'onclick', e => { e.stopPropagation(); const n = e.currentTarget.dataset.hof; openModal(() => hofModal(n)); });
 }
 </script>
+<script>// ===== VERSION 5.9: the full editor (hidden dot bottom-left of the Hub, code 1105) =====
+const CM_TYPES = [['', 'Does not bowl'], ['RF', 'Right-arm fast'], ['RFM', 'Right-arm fast-medium'], ['RM', 'Right-arm medium'], ['LF', 'Left-arm fast'], ['LFM', 'Left-arm fast-medium'], ['OB', 'Off spin'], ['LB', 'Leg spin'], ['SLA', 'Left-arm orthodox']];
+const cmPace = t => ['RF', 'RFM', 'RM', 'LF', 'LFM'].includes(t);
+const cmEl = id => document.getElementById(id);
+const cmNum = id => { const el = cmEl(id); return el && el.value !== '' && isFinite(+el.value) ? +el.value : null; };
+const cmVal = id => { const el = cmEl(id); return el ? el.value : null; };
+const cmChk = id => { const el = cmEl(id); return el ? el.checked : null; };
+function cmF(id, label, v, step, w) { return `<label class="sm" style="display:inline-block;margin:4px 10px 4px 0">${label}<br><input id="${id}" type="number" step="${step || 1}" value="${v == null ? '' : Math.round(v * 10) / 10}" style="width:${w || 72}px"></label>`; }
+function cmS(id, label, opts, cur) { return `<label class="sm" style="display:inline-block;margin:4px 10px 4px 0">${label}<br><select id="${id}">${opts.map(([v, l]) => `<option value="${esc(v)}" ${String(v) === String(cur == null ? '' : cur) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>`; }
+function cmC(id, label, on) { return `<label class="sm" style="display:inline-block;margin:6px 12px 4px 0"><input type="checkbox" id="${id}" ${on ? 'checked' : ''}> ${label}</label>`; }
+function cmT(id, label, v, w) { return `<label class="sm" style="display:inline-block;margin:4px 10px 4px 0">${label}<br><input id="${id}" value="${esc(v || '')}" style="width:${w || 160}px" autocomplete="off"></label>`; }
+const cmLeagueOf = (name) => { const L = C.leagues && C.leagues.signed; const out = {}; if (L) Object.keys(L).forEach(k => { if (L[k][name]) out[k] = L[k][name]; }); return out; };
+
+// ---- shared moves (all used by the player tab, the team lists and the create tab) ----
+function cmSetBBL(p, k) {
+  if (!C.bbl) return;
+  const cur = CR.bblClubOf(C, p.name) || null; k = k || null; if (cur === k) return;
+  if (cur) { const cl = C.bbl.clubs[cur]; cl.squad = cl.squad.filter(n => n !== p.name); if (cl.con) delete cl.con[p.name]; }
+  if (k) { const cl = C.bbl.clubs[k]; cl.squad.push(p.name); (cl.con = cl.con || {})[p.name] = { sal: typeof bblValue === 'function' ? bblValue(C, p) : 100000, yrs: 2 }; }
+}
+function cmSetLeague(p, lg, team) {
+  if (!C.leagues || !C.leagues.signed) return;
+  const S = C.leagues.signed[lg] || (C.leagues.signed[lg] = {});
+  if (team) S[p.name] = team; else delete S[p.name];
+}
+function cmClearRoles(p, leavingAus) {
+  C.contracts = (C.contracts || []).filter(n => n !== p.name);
+  if (leavingAus) {
+    if (C.captain === p.name) C.captain = null; if (C.vice === p.name) C.vice = null;
+    Object.keys(C.captains || {}).forEach(f => { const cc = C.captains[f]; if (cc) C.captains[f] = cc.map(n => n === p.name ? null : n); });
+    C.promises = (C.promises || []).filter(x => x.name !== p.name);
+    if (C.academy && C.academy.sch) C.academy.sch = C.academy.sch.filter(n => n !== p.name);
+  }
+}
+function cmMoveNation(p, nat, now) {
+  if (!nat || nat === p.nat) return;
+  const wasAus = p.nat === 'AUS';
+  CR.moveNation(C, p, nat, now);
+  if (wasAus) cmClearRoles(p, true);
+}
+function cmSetBowl(p, type) {
+  if (!type) { if (p.bowl) { p.bowl = null; if (p.role === 'BOWL' || p.role === 'AR') p.role = 'BAT'; } return; }
+  if (!p.bowl) { p.bowl = { type, skill: 40, acc: 40, stam: cmPace(type) ? 70 : 85, death: 35, vars: 35 }; }
+  p.bowl.type = type;
+  const sk = p.bowl.skill;
+  if (cmPace(type)) { if (p.bowl.swing == null) p.bowl.swing = sk; if (p.bowl.seam == null) p.bowl.seam = sk; delete p.bowl.turn; delete p.bowl.flight; }
+  else { if (p.bowl.turn == null) p.bowl.turn = sk; if (p.bowl.flight == null) p.bowl.flight = sk; delete p.bowl.swing; delete p.bowl.seam; }
+  if (p.bowl.death == null) p.bowl.death = Math.round(sk * 0.8); if (p.bowl.vars == null) p.bowl.vars = Math.round(sk * 0.8);
+}
+function cmRetirePlayer(p) {
+  const L = C.players[p.nat]; const i = L.indexOf(p); if (i >= 0) L.splice(i, 1);
+  p.retired = true;
+  cmClearRoles(p, p.nat === 'AUS'); cmSetBBL(p, null);
+  if (C.leagues && C.leagues.signed) Object.keys(C.leagues.signed).forEach(k => delete C.leagues.signed[k][p.name]);
+  try { retireSnapshot(C, p); } catch (e) { console.warn(e); }
+  CR.news(C, `${p.name} has retired.`);
+}
+function cmFinish(p) {
+  p.potRaw = Math.max(p.potRaw || 0, E.overall(p));
+  p.peak = Math.max(p.peak || 0, E.potential(p)); p.peakWB = Math.max(p.peakWB || 0, E.wbOverall(p, 'odi'), E.wbOverall(p, 't20'));
+}
+
+// ---- the modal ----
+function cmEditModal() {
+  const tab = ui.cmTab || 'player';
+  const tabs = [['player', 'Edit a player'], ['teams', 'Team lists'], ['create', 'Create a player'], ['world', 'Career and world']];
+  let body = '';
+  if (tab === 'player') body = cmPlayerTab(); else if (tab === 'teams') body = cmTeamsTab(); else if (tab === 'create') body = cmCreateTab(); else body = cmWorldTab();
+  return `<div class="modal-bg"><div class="modal wide xl"><div class="row"><h2>Editor</h2><span class="mute sm">Changes save straight away.</span></div>
+    <div class="tabs">${tabs.map(([k, l]) => `<button data-cmtab="${k}" class="${k === tab ? 'on' : ''}">${l}</button>`).join('')}</div>
+    ${ui.cmMsg ? `<div class="ok" style="margin-bottom:8px">${esc(ui.cmMsg)}</div>` : ''}${body}
+    <div class="btns"><button id="mClose">Close</button></div></div></div>`;
+}
+function cmPlayerTab() {
+  const q = (ui.cmQ || '').toLowerCase().trim();
+  const all = CR.NATIONS.flatMap(n => C.players[n]);
+  const hits = q.length >= 2 ? all.filter(p => p.name.toLowerCase().includes(q)).slice(0, 25) : [];
+  const p = ui.cmP ? CR.P_(C, ui.cmP) : null;
+  let body = `<input id="cmSearch" placeholder="Type a player's name (any nation)" value="${esc(ui.cmQ || '')}" style="width:100%" autocomplete="off">
+    ${hits.length ? `<div class="sm" style="margin-top:6px">${hits.map(h => `<a class="pl" data-cmpick="${esc(h.name)}" style="display:inline-block;margin:2px 10px 2px 0">${esc(h.name)} <span class="mute">(${h.nat}${h.state ? ' ' + h.state : ''}, ${h.role}, ${E.overall(h)})</span></a>`).join('')}</div>` : q.length >= 2 ? '<div class="mute sm" style="margin-top:6px">No players found.</div>' : ''}`;
+  if (!p) return body;
+  const b = p.bat, w = p.bowl || {}, club = C.bbl ? CR.bblClubOf(C, p.name) : '';
+  const dom = DOM[p.nat] ? [['', 'None']].concat(Object.entries(DOM[p.nat].teams)) : null;
+  const lgs = cmLeagueOf(p.name), aus = p.nat === 'AUS';
+  const capsLine = aus ? `<h3>Captaincy</h3><div class="btns" style="flex-wrap:wrap;justify-content:flex-start">
+      <button data-cmcap="test-c">Test captain</button><button data-cmcap="test-v">Test vice-captain</button><button data-cmcap="odi-c">ODI captain</button><button data-cmcap="odi-v">ODI vice</button><button data-cmcap="t20-c">T20I captain</button><button data-cmcap="t20-v">T20I vice</button></div>
+      <div class="mute sm">Now: Test ${esc(C.captain || '-')} (vice ${esc(C.vice || '-')}) · ODI ${esc(((C.captains || {}).odi || [])[0] || '-')} · T20I ${esc(((C.captains || {}).t20 || [])[0] || '-')}</div>` : '';
+  body += `<div class="card" style="margin-top:10px"><h3>${esc(p.name)} <span class="mute sm">${tName(p.nat)}${p.state ? ' · ' + STATES[p.state].name : ''} · ${roleName[p.role]} · age ${p.age}</span></h3>
+    <p class="sm mute">Now: Test ${E.overall(p)} (POT ${E.potential(p)}) · ODI ${E.wbOverall(p, 'odi')} (POT ${E.wbPotential(p, 'odi')}) · T20 ${E.wbOverall(p, 't20')} (POT ${E.wbPotential(p, 't20')})</p>
+    <h3>Teams</h3>
+    ${cmS('cmNat', 'Country', CR.NATIONS.map(n => [n, tName(n)]), p.nat)}${cmC('cmNow', 'Eligible to play for them straight away', true)}
+    ${cmS('cmState', 'State (if Australian)', CR.STATE_CODES.map(k => [k, STATES[k].name]), p.state || 'NSW')}
+    ${dom ? cmS('cmDom', DOM[p.nat].name + ' team', dom, p.dt || '') : ''}
+    ${C.bbl ? cmS('cmBBL', 'BBL club', [['', 'None']].concat(CR.BBL_CODES.map(k => [k, BBL_CLUBS[k].name])), club || '') : ''}
+    ${typeof LEAGUES !== 'undefined' && C.leagues ? `<div>${LEAGUES.map(lg => cmS('cmLg_' + lg.k, lg.name, [['', 'None']].concat(lg.teams.map(t => [t, t])), lgs[lg.k] || '')).join('')}</div><div class="mute sm">Franchise league signings are redrawn each season.</div>` : ''}
+    <div>${cmC('cmCA', 'Cricket Australia contract', (C.contracts || []).includes(p.name))}${cmC('cmWB', 'White-ball only (no Tests)', p.wbOnly)}
+    ${cmS('cmIntl', 'Available for', [['all', 'All formats'], ['odi', 'ODIs only (white ball)'], ['t20', 'T20Is only (white ball)'], ['none', 'No internationals']], p.intl || 'all')}
+    ${p.noIntl ? cmC('cmQual', `Qualify now (not eligible until ${p.qualY || '?'})`, true) : ''}</div>
+    ${capsLine}
+    <h3>Quick ratings</h3>${cmF('cmT', 'Test OVR', E.overall(p))}${cmF('cmO', 'ODI OVR', E.wbOverall(p, 'odi'))}${cmF('cmT2', 'T20 OVR', E.wbOverall(p, 't20'))}${cmF('cmPot', 'Potential', E.potential(p))}
+    <h3>Player</h3>${cmF('cmAge', 'Age', p.age)}${cmF('cmForm', 'Form (-10 to 10)', p.form || 0)}${cmF('cmMor', 'Morale', p.morale)}${cmF('cmLead', 'Leadership (Test)', p.lead)}${cmF('cmLeadW', 'Leadership (white-ball)', p.leadWB != null ? p.leadWB : p.lead)}
+    ${cmS('cmPers', 'Personality', PERS.map(x => [x, x]), CR.persOf(p))}${cmS('cmRole', 'Role', [['BAT', 'Batter'], ['BOWL', 'Bowler'], ['AR', 'All-rounder'], ['WK', 'Keeper']], p.role)}
+    ${cmS('cmHand', 'Bats', [['R', 'Right-handed'], ['L', 'Left-handed']], p.hand || 'R')}${cmF('cmProne', 'Injury proneness (0.3 to 3)', p.prone || 1, 0.1, 90)}${cmC('cmOpen', 'Opener', !!p.opener)}
+    <h3>Fitness</h3>${cmS('cmInjS', 'Status', [['fit', 'Fit'], ['inj', 'Injured']], p.injury ? 'inj' : 'fit')}${cmF('cmInjW', 'Weeks out', p.injury ? Math.ceil(p.injury.weeks) : 4)}${cmT('cmInjWhat', 'Injury', p.injury ? p.injury.what : 'hamstring strain')}
+    ${C.energy && C.energy[p.name] != null ? cmF('cmEn', 'Energy for the next Test', C.energy[p.name]) : ''}
+    <h3>Batting</h3>${['tech', 'agg', 'vPace', 'vSpin', 'conc', 'off', 'on', 'power', 'finish'].filter(k => b[k] != null).map(k => cmF('cmb_' + k, k, b[k])).join('')}
+    <h3>Bowling</h3>${cmS('cmBType', 'Bowling type', CM_TYPES, w.type || '')}
+    ${p.bowl ? ['skill', 'acc', 'stam', 'swing', 'seam', 'turn', 'flight', 'death', 'vars'].filter(k => w[k] != null).map(k => cmF('cmw_' + k, k, w[k])).join('') : '<div class="mute sm">Pick a bowling type to give him bowling (starts at 40, then set the numbers).</div>'}
+    <h3>Fielding and keeping</h3>${cmF('cmKeep', 'Keeping', p.keep)}${cmF('cmField', 'Catching', p.field)}${cmF('cmGround', 'Ground fielding', p.ground)}
+    <div class="btns"><button class="primary" id="cmSave">Apply</button><button id="cmRetire2">Retire this player</button></div>
+    <p class="sm mute">Moves happen first, then hand-edited attributes, then the quick ratings (Test, then ODI and T20).</p></div>`;
+  return body;
+}
+function cmApply() {
+  const p = CR.P_(C, ui.cmP); if (!p) return;
+  if (!C.contracts) C.contracts = [];
+  const before = { t: E.overall(p), o: E.wbOverall(p, 'odi'), t2: E.wbOverall(p, 't20'), pot: E.potential(p) };
+  const domBefore = p.nat;
+  // 1. teams
+  const nat = cmVal('cmNat'); if (nat && nat !== p.nat) cmMoveNation(p, nat, cmChk('cmNow'));
+  if (p.nat === 'AUS' && cmVal('cmState')) p.state = cmVal('cmState');
+  if (cmVal('cmDom') != null && p.nat === domBefore) { if (cmVal('cmDom')) p.dt = cmVal('cmDom'); else delete p.dt; }
+  if (cmVal('cmBBL') != null) cmSetBBL(p, cmVal('cmBBL'));
+  if (typeof LEAGUES !== 'undefined') LEAGUES.forEach(lg => { const v = cmVal('cmLg_' + lg.k); if (v != null) cmSetLeague(p, lg.k, v); });
+  if (cmChk('cmCA') != null) { const has = C.contracts.includes(p.name); if (cmChk('cmCA') && !has && p.nat === 'AUS') C.contracts.push(p.name); if (!cmChk('cmCA') && has) C.contracts = C.contracts.filter(n => n !== p.name); }
+  if (cmChk('cmWB') != null) { if (cmChk('cmWB')) p.wbOnly = true; else delete p.wbOnly; }
+  const it = cmVal('cmIntl'); if (it) { if (it === 'all') delete p.intl; else p.intl = it; }
+  if (cmChk('cmQual')) { delete p.noIntl; delete p.qualY; }
+  // 2. player
+  if (cmVal('cmPers')) p.pers = cmVal('cmPers');
+  const role = cmVal('cmRole'); if (role && role !== p.role) { p.role = role; if (role === 'WK' && !p.keep) p.keep = 60; if ((role === 'BOWL' || role === 'AR') && !p.bowl) cmSetBowl(p, 'RFM'); }
+  if (cmVal('cmHand')) p.hand = cmVal('cmHand');
+  const pr = cmNum('cmProne'); if (pr != null) p.prone = clamp(pr, 0.3, 3);
+  if (cmChk('cmOpen') != null) { if (cmChk('cmOpen')) p.opener = true; else delete p.opener; }
+  const bt = cmVal('cmBType'); if (bt != null && bt !== ((p.bowl || {}).type || '')) cmSetBowl(p, bt);
+  // 3. hand-edited attributes
+  Object.keys(p.bat).forEach(k => { const v = cmNum('cmb_' + k); if (v != null) p.bat[k] = clamp(v, 1, 99); });
+  if (p.bowl) Object.keys(p.bowl).forEach(k => { if (k === 'type') return; const v = cmNum('cmw_' + k); if (v != null) p.bowl[k] = clamp(v, 1, 99); });
+  const kp = cmNum('cmKeep'); if (kp != null) p.keep = clamp(kp, 0, 99);
+  const fl = cmNum('cmField'); if (fl != null) p.field = clamp(fl, 1, 99);
+  const gr = cmNum('cmGround'); if (gr != null) p.ground = clamp(gr, 1, 99);
+  // 4. quick ratings
+  const t = cmNum('cmT'); if (t != null && t !== before.t) cmSetTest(p, clamp(t, 1, 99));
+  const o = cmNum('cmO'); if (o != null && o !== before.o) cmSetWB(p, 'odi', clamp(o, 1, 99));
+  const t2 = cmNum('cmT2'); if (t2 != null && t2 !== before.t2) cmSetWB(p, 't20', clamp(t2, 1, 99));
+  const pot = cmNum('cmPot'); if (pot != null && pot !== before.pot) p.potRaw = Math.max(E.overall(p), clamp(pot, 1, 99));
+  cmFinish(p);
+  const ld = cmNum('cmLead'); if (ld != null) p.lead = clamp(ld, 1, 99);
+  const lw = cmNum('cmLeadW'); if (lw != null) p.leadWB = clamp(lw, 1, 99);
+  const ag = cmNum('cmAge'); if (ag != null) p.age = clamp(Math.round(ag), 15, 45);
+  const fo = cmNum('cmForm'); if (fo != null) p.form = clamp(fo, -10, 10);
+  const mo = cmNum('cmMor'); if (mo != null) p.morale = clamp(mo, 0, 100);
+  // 5. fitness
+  if (cmVal('cmInjS') === 'fit') p.injury = null;
+  else if (cmVal('cmInjS') === 'inj') p.injury = { what: (cmVal('cmInjWhat') || 'injury').trim() || 'injury', weeks: clamp(cmNum('cmInjW') || 4, 1, 52) };
+  const en = cmNum('cmEn'); if (en != null && C.energy) C.energy[p.name] = clamp(en, 45, 100);
+  ui.cmMsg = `Saved changes to ${p.name}.`;
+  CR.bump(C); save(); openModal(cmEditModal);
+}
+
+// ---- team lists: see any state, BBL club or country and move people in bulk ----
+function cmListOf(type, key) {
+  if (type === 'state') return C.players.AUS.filter(p => p.state === key);
+  if (type === 'bbl') return C.bbl ? C.bbl.clubs[key].squad.map(n => CR.P_(C, n)).filter(Boolean) : [];
+  return (C.players[key] || []).slice().sort((a, b) => E.overall(b) - E.overall(a)).slice(0, 60);
+}
+function cmTeamsTab() {
+  const type = ui.cmLT || 'state';
+  const keys = type === 'state' ? CR.STATE_CODES.map(k => [k, STATES[k].name]) : type === 'bbl' ? CR.BBL_CODES.map(k => [k, BBL_CLUBS[k].name]) : CR.NATIONS.map(n => [n, tName(n)]);
+  const key = keys.some(x => x[0] === ui.cmLK) ? ui.cmLK : keys[0][0];
+  const list = cmListOf(type, key);
+  const dest = type === 'bbl' ? [['', 'No club']].concat(keys) : keys;
+  return `<div class="tabs">${[['state', 'States'], ['bbl', 'BBL clubs'], ['nat', 'Countries']].map(([k, l]) => `<button data-cmlt="${k}" class="${k === type ? 'on' : ''}">${l}</button>`).join('')}</div>
+    ${type === 'bbl' && !C.bbl ? '<p class="mute">The BBL has not started in this save yet.</p>' : `${cmS('cmLK', 'List', keys, key)}
+    <div class="card scroll"><table><tr><th>Player</th><th>Country</th><th>Role</th><th class="n">Age</th><th class="n">Test</th><th class="n">T20</th><th>Move to</th><th></th></tr>
+    ${list.map((p, i) => `<tr><td>${esc(p.name)}</td><td>${p.nat}</td><td>${p.role}</td><td class="n">${p.age}</td><td class="n">${E.overall(p)}</td><td class="n">${E.wbOverall(p, 't20')}</td>
+      <td><select id="cmMv_${i}">${dest.filter(d => d[0] !== key).map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('')}</select></td><td><button class="mini" data-cmmove="${esc(p.name)}" data-cmi="${i}">Move</button></td></tr>`).join('')}</table>
+    <div class="mute sm" style="margin-top:6px">${list.length} players.${type === 'nat' ? ' Showing the 60 best; moved players can play for their new country straight away.' : ''}${type === 'bbl' ? ` Lists normally hold up to 18, with up to 3 overseas players in an XI.` : ''}</div></div>`}`;
+}
+function cmMove(name, to) {
+  const p = CR.P_(C, name); if (!p) return;
+  const type = ui.cmLT || 'state';
+  if (type === 'state') { if (p.nat !== 'AUS') return; p.state = to; ui.cmMsg = `${name} moved to ${STATES[to].name}.`; }
+  else if (type === 'bbl') { cmSetBBL(p, to || null); ui.cmMsg = to ? `${name} moved to the ${BBL_CLUBS[to].name}.` : `${name} released from his BBL club.`; }
+  else { cmMoveNation(p, to, true); ui.cmMsg = `${name} now plays for ${tName(to)}.`; }
+  CR.bump(C); save(); openModal(cmEditModal);
+}
+
+// ---- create a player ----
+function cmCreateTab() {
+  const d = ui.cmNew || (ui.cmNew = { nat: 'AUS', state: 'SA', role: 'BAT', bowl: '', hand: 'R', age: 21, t: 70, pot: 85 });
+  return `<div class="card"><h3>New player</h3>
+    ${cmT('cnName', 'Name', d.name || '', 200)}${cmS('cnNat', 'Country', CR.NATIONS.map(n => [n, tName(n)]), d.nat)}${cmS('cnState', 'State (if Australian)', CR.STATE_CODES.map(k => [k, STATES[k].name]), d.state)}
+    ${cmS('cnRole', 'Role', [['BAT', 'Batter'], ['BOWL', 'Bowler'], ['AR', 'All-rounder'], ['WK', 'Keeper']], d.role)}${cmS('cnBowl', 'Bowling', CM_TYPES, d.bowl)}${cmS('cnHand', 'Bats', [['R', 'Right-handed'], ['L', 'Left-handed']], d.hand)}
+    <div>${cmF('cnAge', 'Age', d.age)}${cmF('cnT', 'Test OVR', d.t)}${cmF('cnO', 'ODI OVR (blank = automatic)', d.o)}${cmF('cnT2', 'T20 OVR (blank = automatic)', d.t2)}${cmF('cnPot', 'Potential', d.pot)}</div>
+    ${C.bbl ? cmS('cnBBL', 'BBL club', [['', 'None']].concat(CR.BBL_CODES.map(k => [k, BBL_CLUBS[k].name])), '') : ''}${cmC('cnCA', 'Cricket Australia contract', false)}
+    <div class="btns"><button class="primary" id="cnGo">Create player</button></div>
+    <p class="mute sm">He joins the game straight away and develops like everyone else. Find him with the Players tab or the editor search.</p></div>`;
+}
+function cmCreate() {
+  const name = (cmVal('cnName') || '').trim().replace(/\s+/g, ' ');
+  const d = ui.cmNew = { name, nat: cmVal('cnNat'), state: cmVal('cnState'), role: cmVal('cnRole'), bowl: cmVal('cnBowl'), hand: cmVal('cnHand'), age: cmNum('cnAge'), t: cmNum('cnT'), o: cmNum('cnO'), t2: cmNum('cnT2'), pot: cmNum('cnPot') };
+  if (name.length < 3) { ui.cmMsg = 'Give him a name first.'; openModal(cmEditModal); return; }
+  if (CR.P_(C, name) || (C.stats && C.stats[name])) { ui.cmMsg = `There is already a player called ${name}. Pick another name.`; openModal(cmEditModal); return; }
+  const role = d.role || 'BAT'; let bowl = d.bowl || (role === 'BOWL' || role === 'AR' ? 'RFM' : '');
+  const age = clamp(Math.round(d.age || 21), 15, 45), t = clamp(d.t || 70, 20, 99);
+  const p = Q(name, age, role, role === 'BOWL' ? 35 : t - 4, 65, 0, bowl ? `${bowl} ${role === 'BOWL' || role === 'AR' ? t - 2 : 40}` : null, null, { h: d.hand, st: d.nat === 'AUS' ? d.state : null, keep: role === 'WK' ? t : 0 });
+  p.nat = d.nat; if (p.nat !== 'AUS') delete p.state;
+  wbInit(p); p.wbo = { odi: { bat: 0, bowl: 0 }, t20: { bat: 0, bowl: 0 } };
+  cmSetTest(p, t); if (d.o != null) cmSetWB(p, 'odi', clamp(d.o, 20, 99)); if (d.t2 != null) cmSetWB(p, 't20', clamp(d.t2, 20, 99));
+  p.potRaw = Math.max(E.overall(p), clamp(d.pot || t, 1, 99));
+  p.peak = E.potential(p); p.peakWB = Math.max(E.wbOverall(p, 'odi'), E.wbOverall(p, 't20'));
+  p.morale = 70; p.lead = defaultLead(p); p.hist = [{ y: CR.curWindow(C).season, o: E.overall(p), p: E.potential(p) }]; p.sp = { n: 0, sum: 0 }; p.gen = true; p.custom = true;
+  C.players[p.nat].push(p);
+  if (DOM[p.nat] && C.dom && C.dom[p.nat]) { const tm = Object.keys(DOM[p.nat].teams); p.dt = tm[Math.floor(Math.random() * tm.length)]; }
+  if (cmVal('cnBBL')) cmSetBBL(p, cmVal('cnBBL'));
+  if (cmChk('cnCA') && p.nat === 'AUS') (C.contracts = C.contracts || []).push(p.name);
+  CR.bump(C); save();
+  ui.cmMsg = `${name} created: ${tName(p.nat)}${p.state ? ', ' + STATES[p.state].name : ''}, Test ${E.overall(p)}, ODI ${E.wbOverall(p, 'odi')}, T20 ${E.wbOverall(p, 't20')}, potential ${E.potential(p)}.`;
+  ui.cmNew = null; ui.cmTab = 'player'; ui.cmP = name; ui.cmQ = name;
+  openModal(cmEditModal);
+}
+
+// ---- career and world ----
+function cmWorldTab() {
+  const cm = C.cm || {};
+  return `<div class="card"><h3>Career</h3>${cmF('cmConf', 'Board confidence', C.board.conf)}${cmF('cmRep', 'Reputation', C.rep != null ? C.rep : 50)}${C.club ? cmF('cmCap', 'BBL salary cap ($)', C.club.cap, 10000, 110) : ''}
+    <div>${cmC('cmNoSack', 'You can never be sacked', cm.noSack)}${cmC('cmNoCap', 'No BBL salary cap or list limit for your club', cm.noCap)}${cmC('cmNoOS', 'No overseas limit in BBL XIs', cm.noOS)}${cmC('cmNoInj', 'No injuries for Australian players', cm.noInj)}</div>
+    ${C.sacked ? cmC('cmUnsack', 'Undo your sacking', true) : ''}
+    <div class="btns"><button class="primary" id="cmCareer">Apply career changes</button></div></div>
+    <div class="card"><h3>Quick actions</h3><div class="btns" style="flex-wrap:wrap;justify-content:flex-start">
+      <button data-cmq="healAus">Heal every Australian</button><button data-cmq="healAll">Heal everyone</button><button data-cmq="fresh">Everyone fully rested</button>
+      <button data-cmq="moraleAus">Every Australian happy (morale 85)</button><button data-cmq="formAus">Every Australian in form</button></div></div>`;
+}
+function cmCareerApply() {
+  const cf = cmNum('cmConf'); if (cf != null) C.board.conf = clamp(cf, 0, 100);
+  const rp = cmNum('cmRep'); if (rp != null) C.rep = clamp(rp, 0, 100);
+  if (C.club) { const cap = cmNum('cmCap'); if (cap != null && cap > 0) C.club.cap = cap; }
+  C.cm = C.cm || {};
+  ['noSack', 'noCap', 'noOS', 'noInj'].forEach(k => { const v = cmChk('cm' + k[0].toUpperCase() + k.slice(1)); if (v != null) { if (v) C.cm[k] = true; else delete C.cm[k]; } });
+  if (C.cm.noSack) C.strikes = 0;
+  if (cmChk('cmUnsack')) { C.sacked = null; C.strikes = 0; C.board.conf = Math.max(C.board.conf, 30); }
+  ui.cmMsg = 'Career settings saved.'; save(); openModal(cmEditModal);
+}
+function cmQuick(k) {
+  const aus = C.players.AUS, all = CR.NATIONS.flatMap(n => C.players[n]);
+  if (k === 'healAus') aus.forEach(p => { p.injury = null; });
+  if (k === 'healAll') all.forEach(p => { p.injury = null; });
+  if (k === 'fresh') C.energy = {};
+  if (k === 'moraleAus') aus.forEach(p => { p.morale = 85; });
+  if (k === 'formAus') aus.forEach(p => { p.form = Math.max(p.form || 0, 4); });
+  ui.cmMsg = { healAus: 'Every Australian is fit.', healAll: 'Everyone is fit.', fresh: 'Everyone is fully rested.', moraleAus: 'Every Australian is happy.', formAus: 'Every Australian is in form.' }[k];
+  CR.bump(C); save(); openModal(cmEditModal);
+}
+function bind59() {
+  const on = (sel, ev, fn) => document.querySelectorAll(sel).forEach(el => el[ev] = fn);
+  on('[data-cmtab]', 'onclick', e => { ui.cmTab = e.currentTarget.dataset.cmtab; ui.cmMsg = null; openModal(cmEditModal); });
+  on('#cmSave', 'onclick', cmApply);
+  on('#cmRetire2', 'onclick', () => { const p = CR.P_(C, ui.cmP); if (!p) return; cmRetirePlayer(p); ui.cmMsg = `${p.name} has been retired.`; ui.cmP = null; CR.bump(C); save(); openModal(cmEditModal); });
+  on('[data-cmcap]', 'onclick', e => {
+    const p = CR.P_(C, ui.cmP); if (!p || p.nat !== 'AUS') return; const [f, r] = e.currentTarget.dataset.cmcap.split('-');
+    if (f === 'test') { if (r === 'c') CR.setCaptain(C, p.name, C.vice === p.name ? null : C.vice); else C.vice = C.captain === p.name ? C.vice : p.name; }
+    else { const cur = (C.captains && C.captains[f]) || [null, null]; if (r === 'c') CR.setCaptainWB(C, f, p.name, cur[1] === p.name ? null : cur[1]); else if (cur[0] !== p.name) C.captains[f] = [cur[0], p.name]; }
+    ui.cmMsg = `${p.name} is now ${f === 'test' ? 'Test' : f === 'odi' ? 'ODI' : 'T20I'} ${r === 'c' ? 'captain' : 'vice-captain'}.`; save(); openModal(cmEditModal);
+  });
+  on('[data-cmlt]', 'onclick', e => { ui.cmLT = e.currentTarget.dataset.cmlt; ui.cmLK = null; ui.cmMsg = null; openModal(cmEditModal); });
+  on('#cmLK', 'onchange', e => { ui.cmLK = e.target.value; openModal(cmEditModal); });
+  on('[data-cmmove]', 'onclick', e => { const n = e.currentTarget.dataset.cmmove, i = e.currentTarget.dataset.cmi; cmMove(n, cmVal('cmMv_' + i)); });
+  on('#cnGo', 'onclick', cmCreate);
+  on('#cmCareer', 'onclick', cmCareerApply);
+  on('[data-cmq]', 'onclick', e => cmQuick(e.currentTarget.dataset.cmq));
+}
+</script>
+
 
 
 </body>
