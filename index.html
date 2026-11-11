@@ -62,7 +62,7 @@ td.n,th.n{text-align:right;font-family:'JetBrains Mono',monospace}
 .chip{min-width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font:600 12px 'JetBrains Mono';background:#22392e;color:var(--mute);padding:0 4px}
 .chip.c4{background:#1f4f8a;color:#fff}.chip.c6{background:#6a3fa0;color:#fff}.chip.cW{background:var(--red);color:#fff}
 .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
-.tabs{display:flex;gap:6px;margin-bottom:10px}
+.tabs{display:flex;gap:6px;margin-bottom:10px}/* 5.7.2 phone fixes */select{max-width:100%;min-width:0}.card label{max-width:100%;min-width:0}.grid2>*,.grid3>*{min-width:0}.tabs{flex-wrap:wrap}@media(max-width:620px){.card:not(.scroll) table{display:block;overflow-x:auto;max-width:100%}}
 .tabs button{padding:7px 12px}
 .tabs button.on{background:var(--gold);color:#1a1a1a;border-color:var(--gold)}
 .feed{max-height:560px;overflow:auto}
@@ -1287,12 +1287,13 @@ function simBall(m) {
   const d = effBat(m, bat, bowler, inn.bat) - effBowl(m, bowler, inn.bowl) + K.off;
   const b = card.balls - 1;
   let setM = b < 8 ? 1.35 : b < 20 ? 1.12 : b < 50 ? 1.0 : 0.9;
-  if (b > 240) setM *= 1 + (b - 240) / 600 * (1.3 - bat.bat.conc / 100);
+  if (b > 150) setM *= 1 + (b - 150) / 360 * (1.35 - bat.bat.conc / 100); // 5.8: long innings tire sooner
   const apW = appr === 'defend' ? 0.65 : appr === 'attack' ? 1.45 : 1;
   const apR = appr === 'defend' ? 0.55 : appr === 'attack' ? 1.5 : 1;
   const fld = fieldOf(m, card);
   const fW = fld === 'attack' ? 1.18 : fld === 'defend' ? 0.82 : 1, fR = fld === 'attack' ? 1.15 : fld === 'defend' ? 0.82 : 1;
-  const bpw = K.base * Math.exp(d > 0 ? K.up * d : K.down * d);
+  let bpw = K.base * Math.exp(d > 0 ? K.up * d : K.down * d);
+  if (bpw > BPW_SOFT) bpw = BPW_SOFT + (bpw - BPW_SOFT) * 0.3; // 5.8: even huge mismatches still produce mistakes
   const pW = (1 / bpw) * setM * (0.8 + bat.bat.agg / 250) * apW * fW;
 
   if (rnd() < pW) { dismissal(m, bowler, bat, fig); endOverCheck(m); return; }
@@ -1568,6 +1569,7 @@ function situation(m) {
 }
 
 // ---------- Declarations / follow-on ----------
+let BPW_SOFT = 105;
 function aiDeclare(m) {
   const inn = cur(m), n = m.innings.length, O = oversLeft(m);
   if (n === 4) return;
@@ -1576,7 +1578,7 @@ function aiDeclare(m) {
   const sc = (m.days === 4 ? 0.85 : 1) * (sty === 'aggressive' ? 0.86 : sty === 'defensive' ? 1.15 : 1);
   let dec = false;
   if (n === 1) dec = inn.runs >= 620 * sc || (inn.runs >= 540 * sc && inn.wkts >= 7);
-  if (n === 2) dec = L >= 250 && inn.runs >= 550 * sc && O < 200 * sc;
+  if (n === 2) dec = (L >= 250 && inn.runs >= 550 * sc) || (L >= 420 * sc && O > 120); // 5.8: big leads declare and bowl again
   if (n === 3) dec = (O > 150 * sc && L >= 650 * sc) || (O <= 150 * sc && O >= 45 && L >= declareTarget(O, m)) || (O >= 20 && O < 45 && L >= 4 * O + 60);
   if (dec) declare(m);
 }
@@ -2383,6 +2385,7 @@ function recordMatch(c, m, comp, opt) {
     sts(name).forEach(s => { s.ct += f.ct; s.st += f.st; s.ro += f.ro; });
   }));
   perf.forEach(pf => { if (pf.wk >= 10) statsOf(c, pf.p.name, comp).tenW++; });
+  if (typeof recHook === 'function') { try { recHook(c, m, comp); } catch (e) { console.warn(e); } }
   // development and form for the real (persistent) player objects
   perf.forEach((pf, name) => {
     const P = P_(c, name); if (!P) return;
@@ -2419,9 +2422,11 @@ function recordMatch(c, m, comp, opt) {
 }
 
 // ---------- Development ----------
+// 5.7.2: rises in potential get rarer near the top of the scale (95+ should be generational)
+function potUpOK(p) { const q = potential(p); return q < 86 || Math.random() < (q >= 93 ? 0.1 : q >= 90 ? 0.3 : 0.6); }
 function ageRate(a) { return a <= 19 ? 1 : a <= 21 ? 0.9 : a <= 23 ? 0.75 : a <= 25 ? 0.55 : a <= 27 ? 0.35 : a <= 29 ? 0.18 : 0.05; }
 function addAttr(p, which, amt) {
-  const up = (o, k, a) => { if (!isFinite(a) || !isFinite(o[k])) return; o[k] = clamp(Math.round((o[k] + a) * 10) / 10, 1, 99); };
+  const up = (o, k, a) => { if (!Number.isFinite(a) || !Number.isFinite(o[k])) return; o[k] = clamp(Math.round((o[k] + a) * 10) / 10, 1, 99); };
   if (which === 'bat') { ['tech', 'conc', 'vPace', 'vSpin', 'off', 'on'].forEach(k => up(p.bat, k, amt * rand(0.6, 1.4))); ['power', 'finish'].forEach(k => p.bat[k] != null && up(p.bat, k, amt * rand(0.3, 0.8))); }
   if (which === 'wbbat') { ['power', 'finish'].forEach(k => up(p.bat, k, amt * rand(0.7, 1.4))); ['vPace', 'vSpin', 'off', 'on'].forEach(k => up(p.bat, k, amt * rand(0.1, 0.4))); }
   if (which === 'wbbowl' && p.bowl) { ['death', 'vars'].forEach(k => up(p.bowl, k, amt * rand(0.7, 1.4))); ['skill', 'acc'].forEach(k => up(p.bowl, k, amt * rand(0.1, 0.4))); }
@@ -2457,8 +2462,8 @@ function develop(c, P, pf, level, comp) {
   P.sp = P.sp || { n: 0, sum: 0 }; P.sp.n++; P.sp.sum += main;
   P._lastMain = main;
   // breakthrough performances lift young players' potential
-  if (P.age <= 24 && potential(P) < 97 && ((pf.runs >= 100 && comp === 'test') || (pf.wk >= 8 && comp === 'test') || (pf.runs >= 180 && Math.random() < 0.5) || (pf.wk >= 9 && Math.random() < 0.5))) {
-    P.potRaw = Math.min(97, potential(P) + 1);
+  if (P.age <= 24 && P.potUpY !== curSeason(c) && potUpOK(P) && ((pf.runs >= 100 && comp === 'test') || (pf.wk >= 8 && comp === 'test') || (pf.runs >= 180 && Math.random() < 0.5) || (pf.wk >= 9 && Math.random() < 0.5))) {
+    P.potRaw = Math.min(97, potential(P) + 1); P.potUpY = curSeason(c);
     if (P.nat === 'AUS') news(c, `${P.name}'s potential rises to ${P.potRaw} after a breakthrough match.`, 'good');
   }
 }
@@ -2486,8 +2491,8 @@ function developLO(c, P, pf, level, comp) {
   P.sp = P.sp || { n: 0, sum: 0 }; P.sp.n += 0.6; P.sp.sum += main * 0.6;
   P._lastMain = main;
   const intl = comp === 'odi' || comp === 't20i';
-  if (P.age <= 23 && potential(P) < 97 && ((intl && (pf.runs >= (t20 ? 75 : 110) || pf.wk >= (t20 ? 4 : 5))) || (pf.runs >= (t20 ? 100 : 150) && Math.random() < 0.4)) && Math.random() < 0.6) {
-    P.potRaw = Math.min(97, potential(P) + 1);
+  if (P.age <= 23 && P.potUpY !== curSeason(c) && potUpOK(P) && ((intl && (pf.runs >= (t20 ? 75 : 110) || pf.wk >= (t20 ? 4 : 5))) || (pf.runs >= (t20 ? 100 : 150) && Math.random() < 0.4)) && Math.random() < 0.6) {
+    P.potRaw = Math.min(97, potential(P) + 1); P.potUpY = curSeason(c);
     if (P.nat === 'AUS') news(c, `${P.name}'s potential rises to ${P.potRaw} after a big ${COMP_NAME[comp]} performance.`, 'good');
   }
 }
@@ -2590,14 +2595,20 @@ function shieldApply(c, m, r, h, a) {
   }
 }
 function shieldLadder(c) { return Object.entries(c.shield.ladder).map(([s, L]) => Object.assign({ s }, L)).sort((a, b) => b.pts - a.pts); }
-function simShieldFinal(c, unavailable) {
+function shieldFinalApply(c, m, h, a) {
   const sh = c.shield; if (sh.champ) return;
-  const [a, b] = shieldLadder(c);
-  const m = playShieldMatch(c, a.s, b.s, unavailable, true);
-  const win = m.result.winner === -1 ? a.s : m.teams[m.result.winner].short;
-  sh.final = Object.assign({ home: a.s, away: b.s, text: m.result.winner === -1 ? `Match drawn, ${STATES[a.s].name} win the Shield (top of the ladder)` : m.result.text }, matchSummary(m));
-  sh.champ = win;
+  const win = m.result.winner === -1 ? h : m.teams[m.result.winner].short;
+  sh.final = Object.assign({ home: h, away: a, text: m.result.winner === -1 ? `Match drawn, ${STATES[h].name} win the Shield (top of the ladder)` : m.result.text }, matchSummary(m));
+  sh.champ = win; sh.finalDue = null;
   news(c, `${STATES[win].name} win the Sheffield Shield! ${sh.final.text}.`, 'big');
+}
+// 5.8: if your chosen Shield state makes the final, it waits for you to coach or simulate it
+function simShieldFinal(c, unavailable, force) {
+  const sh = c.shield; if (sh.champ) return;
+  const [a, b] = shieldLadder(c), mine = c.coachTeam && c.coachTeam.shield;
+  if (!force && mine && (a.s === mine || b.s === mine)) { sh.finalDue = [a.s, b.s]; return; }
+  const m = playShieldMatch(c, a.s, b.s, unavailable, true);
+  shieldFinalApply(c, m, a.s, b.s);
 }
 
 // ---------- Background internationals ----------
@@ -2710,6 +2721,7 @@ function finishWtcFinal(c, f) {
 
 function advanceWindow(c) {
   const w = curWindow(c), f = w.fixture;
+  if (c.shield && c.shield.finalDue && !c.shield.champ) { simShieldFinal(c, null, true); news(c, 'Sheffield Shield final: simulated, as the season moved on.'); }
   if (f && f.final && f.status === 'done') finishWtcFinal(c, f);
   const slot = SHIELD_SLOTS[w.id];
   const away = windowSquads(c, w);
@@ -2739,8 +2751,14 @@ function advanceWindow(c) {
 // ---------- Season end: ageing, decline, potential, retirements, regens, intake ----------
 function declineStart(p) { if (p.role === 'WK') return 33; if (!p.bowl || p.role === 'BAT') return 34; return isPace(p.bowl.type) ? 32 : 35; }
 function seasonEnd(c, y) {
+  c.natLv = {}; NATIONS.forEach(n => { c.natLv[n] = Math.round(natLevel(c, n) * 10) / 10; });
+  // 5.8: young players in nations well off their level drift back a little faster (not Australia)
+  NATIONS.filter(n => NAT_TARGET[n] != null).forEach(n => { const d = NAT_TARGET[n] - c.natLv[n]; if (Math.abs(d) < 1.5) return;
+    c.players[n].forEach(p => { if (p.retired || p.age > 24 || Math.random() > Math.min(0.5, Math.abs(d) * 0.12)) return; const q = potential(p);
+      if (d > 0 && q < 90) p.potRaw = q + 1; else if (d < 0) p.potRaw = Math.max(overall(p), q - 1); }); });
   const report = { retired: [], improved: [], wonderkids: [] };
   if (c.bbl && !c.bbl.champ && c.bbl.finalsDue) simBBLFinals(c, null, true);
+  if (c.shield && !c.shield.champ && c.shield.finalDue) simShieldFinal(c, null, true);
   if (typeof awardsNight === 'function') { try { awardsNight(c, y, null); } catch (e) { console.warn(e); } }
   NATIONS.forEach(code => c.players[code].forEach(p => {
     const o0 = overallRaw(p);
@@ -2752,7 +2770,7 @@ function seasonEnd(c, y) {
     // potential review for young players
     if (p.age <= 25 && p.sp) {
       const avg = p.sp.n ? p.sp.sum / p.sp.n : 0;
-      if (p.sp.n >= 4 && avg > 0.5) p.potRaw = Math.min(97, potential(p) + (avg > 1 ? 2 : 1));
+      if (p.sp.n >= 4 && avg > 0.5 && potUpOK(p)) p.potRaw = Math.min(97, potential(p) + (avg > 1 && potential(p) < 90 ? 2 : 1));
       else if (p.sp.n >= 4 && avg < -0.4) p.potRaw = Math.max(overall(p), potential(p) - 1);
       else if (p.sp.n === 0 && p.age >= 21 && Math.random() < 0.35) p.potRaw = Math.max(overall(p), potential(p) - 1);
     }
@@ -2833,9 +2851,21 @@ function seasonEnd(c, y) {
   if (c.reviews && c.reviews[0] && c.reviews[0].y === y) { const R = c.reviews[0]; R.retired = report.retired.slice().sort((a, b) => (/\(AUS/.test(b) ? 1 : 0) - (/\(AUS/.test(a) ? 1 : 0)).slice(0, 8); R.improved = report.improved.slice().sort((a, b) => b[1] - a[1]).slice(0, 6).map(x => `${x[0]} (+${x[1]})`); }
   if (typeof seasonEnd52 === 'function') seasonEnd52(c, y);
   if (typeof seasonEnd54 === 'function') seasonEnd54(c, y);
+  if (typeof hofVote === 'function') { try { hofVote(c, y); } catch (e) { console.warn(e); } }
   c.lastReport = report;
 }
 
+// 5.8: a fairly stable world. New intake for each nation is nudged toward its real-world level, so nations hold
+// their place over long careers. Australia gets a fixed small offset instead (its full Shield sim gives it a built-in
+// edge), so any rise above its level comes from the user's management.
+const NAT_TARGET = { AUS: 85.5, ENG: 83, IND: 85.5, SA: 81.5, NZ: 82, PAK: 79.5, SL: 77, WI: 76.5, BAN: 75.5, ZIM: 71, IRE: 71, AFG: 74.5 };
+let AUS_INTAKE = -1.5;
+function natLevel(c, nat) { const a = c.players[nat].filter(p => !p.retired).map(p => overall(p)).sort((x, y) => y - x).slice(0, 11); return a.length ? a.reduce((x, y) => x + y, 0) / a.length : 70; }
+function intakeNudge(c, nat) {
+  if (NAT_TARGET[nat] == null) return 0;
+  const lv = c.natLv && c.natLv[nat] != null ? c.natLv[nat] : natLevel(c, nat);
+  return (nat === 'AUS' ? AUS_INTAKE : 0) + clamp((NAT_TARGET[nat] - lv) * 1.2, -5, 5);
+}
 function makeRegen(c, nat, tmpl, state) {
   bump(c);
   const names = NAMES[nat] || NAMES.AUS;
@@ -2850,7 +2880,7 @@ function makeRegen(c, nat, tmpl, state) {
     const pkT = tmpl.peak || potential(tmpl), pkW = tmpl.peakWB || 0;
     if (pkW > pkT + 2) wbT = pkW;
     const pk = Math.max(pkT, pkW);
-    pot = Math.min(97, pk >= 85 ? pk + rint(-1, 2) : pk + rint(-3, 3));
+    pot = Math.min(95, pk >= 88 ? pk + rint(-5, 1) : pk >= 84 ? pk + rint(-4, 2) : pk + rint(-3, 3)); // 5.7.2: no upward ratchet across generations
     role = tmpl.role; hand = tmpl.hand; agg = clamp(tmpl.bat.agg + rint(-6, 6), 30, 98); opener = OPENERS.has(tmpl.name) || !!tmpl.opener;
     if (tmpl.bowl) bowl = tmpl.bowl.type;
   } else {
@@ -2859,6 +2889,7 @@ function makeRegen(c, nat, tmpl, state) {
     const roll = Math.random();
     pot = roll < 0.012 ? rint(92, 95) : roll < 0.12 ? rint(84, 90) : rint(66, 82);
   }
+  pot = clamp(Math.round(pot + intakeNudge(c, nat) + Math.random() - 0.5), 50, 95);
   if (role === 'BOWL' && !bowl) bowl = pickW(['RF', 'RFM', 'LFM', 'OB', 'LB', 'SLA'], [20, 30, 10, 14, 10, 16]);
   if (role === 'AR' && !bowl) bowl = pickW(['RFM', 'RM', 'OB', 'SLA'], [40, 15, 25, 20]);
   const start = clamp(48 + rint(0, 9) + (pot - 75) * 0.25, 44, 68);
@@ -2866,7 +2897,7 @@ function makeRegen(c, nat, tmpl, state) {
   const bowlL = role === 'BOWL' ? start + 1 : start - 3;
   const x = { h: hand, st: state || (tmpl && tmpl.state) || null, keep: role === 'WK' ? start + 6 : 0 };
   const p = Q(name, age, role, batL, agg, tilt, bowl && (role === 'BOWL' || role === 'AR' || Math.random() < 0.3) ? `${bowl} ${role === 'BOWL' || role === 'AR' ? bowlL : rint(30, 45)}` : null, pot, x);
-  p.nat = nat; p.potRaw = Math.max(pot, overall(p)); p.regen = true; p.opener = opener; p.morale = 70; p.lead = defaultLead(p);
+  p.nat = nat; p.potRaw = Math.max(pot, overall(p)); p.regen = true; if (tmpl) p.regenOf = tmpl.name; p.opener = opener; p.morale = 70; p.lead = defaultLead(p);
   wbInit(p);
   if (tmpl && tmpl.bat.power != null) {
     const dT = wbDefaults(tmpl), dP = wbDefaults(p);
@@ -3012,6 +3043,7 @@ function confirmContracts(c, list) {
 function retireSnapshot(c, p) {
   const t = goatTotals(c, p.name, p.nat);
   if (t && (t.m >= 10)) c.retiredStars.push(Object.assign({ name: p.name, nat: p.nat, retired: true }, t));
+  if (typeof retire58 === 'function') { try { retire58(c, p); } catch (e) { console.warn(e); } }
 }
 function goatTotals(c, name, nat) {
   const pre = typeof PRESTATS !== 'undefined' ? PRESTATS[name] : null;
@@ -3498,21 +3530,41 @@ function simBBLRound(c, r, unavail) {
 }
 function bblApply(c, m, r, h, a) { const o = c.bbl; tableAdd(o.ladder, m, 't20', [2, 1]); o.results.push(Object.assign({ round: r + 1, home: h, away: a, text: m.result.text }, matchSummary(m))); }
 const prePlayed = (o, r, h, a) => (o.pre || []).some(x => x[0] === r && x[1] === h && x[2] === a);
+const BBL_STAGES = ['Qualifier', 'Knockout', 'Challenger', 'Final'];
+const bblMine = c => (c.club && c.club.code) || (c.coachTeam && c.coachTeam.bbl) || null;
+function bblFinalFixture(o, st) {
+  const L = o.fq.L, R = o.fq.res;
+  if (st === 0) return [L[0], L[1]];
+  if (st === 1) return [L[2], L[3]];
+  if (st === 2) return [R[0] === L[0] ? L[1] : L[0], R[1]];
+  return [R[0], R[2]];
+}
+function bblFinalResult(c, m, st, h, a) {
+  const o = c.bbl, w = m.result.winner === -1 ? h : m.teams[m.result.winner].code;
+  o.finals.push(Object.assign({ stage: BBL_STAGES[st], home: h, away: a, text: m.result.text, winner: w }, matchSummary(m)));
+  o.fq.res[st] = w; o.fq.step = Math.max(o.fq.step, st + 1);
+  if (st === 3) {
+    o.champ = w;
+    if (c.club && o.champ === c.club.code && typeof addTrophy === 'function') addTrophy(c, `BBL|${o.y - 2010}`, `Champions with the ${BBL_CLUBS[o.champ].name}`);
+    news(c, `${BBL_CLUBS[o.champ].name} win BBL|${o.y - 2010}! ${m.result.text}.`, 'big');
+  }
+}
+// 5.8: finals are played one at a time; a final involving your club (or your chosen BBL team) waits for you to coach or simulate it
 function simBBLFinals(c, unavail, force) {
   const o = c.bbl; if (o.champ) return;
-  // your club's matches are never simulated without asking: the finals wait until you have played or simulated them
-  if ((o.pending || []).length && !force) { o.finalsDue = true; return; }
-  while ((o.pending || []).length) { const t = bblPendingSim(c, 0); news(c, `BBL: your club's unplayed match was simulated before the finals (${t}).`); }
+  const regular = () => (o.pending || []).filter(x => typeof x[0] === 'number');
+  if (regular().length && !force) { o.finalsDue = true; return; }
+  while (force && (o.pending || []).length) { const t = bblPendingSim(c, 0); news(c, `BBL: your club's unplayed match was simulated (${t}).`); if (o.champ) return; }
   o.finalsDue = false;
   o.curRound = 10;
-  const L = ladderSorted(o.ladder).map(x => x.s);
-  const play = (stage, a, b) => { const m = playBBL(c, a, b, unavail, BBL_CLUBS[a].home, true); const w = m.result.winner === -1 ? a : m.teams[m.result.winner].code; o.finals.push(Object.assign({ stage, home: a, away: b, text: m.result.text, winner: w }, matchSummary(m))); return w; };
-  const q = play('Qualifier', L[0], L[1]), qLoser = q === L[0] ? L[1] : L[0];
-  const k = play('Knockout', L[2], L[3]);
-  const ch = play('Challenger', qLoser, k);
-  o.champ = play('Final', q, ch);
-  if (c.club && o.champ === c.club.code && typeof addTrophy === 'function') addTrophy(c, `BBL|${o.y - 2010}`, `Champions with the ${BBL_CLUBS[o.champ].name}`);
-  news(c, `${BBL_CLUBS[o.champ].name} win BBL|${o.y - 2010}! ${o.finals[3].text}.`, 'big');
+  if (!o.fq) o.fq = { L: ladderSorted(o.ladder).map(x => x.s), res: {}, step: 0 };
+  const mine = bblMine(c);
+  while (o.fq.step < 4 && !o.champ) {
+    const st = o.fq.step, [h, a] = bblFinalFixture(o, st), key = 'F' + st;
+    if (!force && mine && (h === mine || a === mine)) { if (!(o.pending || []).some(x => x[0] === key)) (o.pending = o.pending || []).push([key, h, a]); o.finalsDue = true; return; }
+    const m = playBBL(c, h, a, unavail, BBL_CLUBS[h].home, true);
+    bblFinalResult(c, m, st, h, a);
+  }
 }
 
 // ---------- Expectations ----------
@@ -4096,14 +4148,16 @@ function clubFixtures(c) {
 // any domestic fixture of the next unplayed round can be coached by you
 function nextRoundFixtures(c, comp) {
   const o = comp === 'shield' ? c.shield : comp === 'odc' ? c.odc : c.bbl; if (!o || o.champ) return [];
-  const r = o.rounds.findIndex((_, i) => !o.played.includes(i)); if (r < 0) return [];
+  const r = o.rounds.findIndex((_, i) => !o.played.includes(i));
+  if (r < 0) { if (comp === 'shield') { const [a, b] = shieldLadder(c); return [{ comp, r: 'final', h: a.s, a: b.s }]; } return []; }
   return o.rounds[r].filter(([h, a]) => !prePlayed(o, r, h, a)).map(([h, a]) => ({ comp, r, h, a }));
 }
 function bblUnavail(c) { const w = curWindow(c); return w ? windowSquads(c, w) : new Set(); }
 function buildDomMatch(c, fx, side) {
   const un = fx.comp === 'shield' ? bblUnavail(c) : bblUnavail(c);
-  if (fx.comp === 'bbl') { bblPreseasonClose(c); c.bbl.curRound = fx.r; }
-  const m = fx.comp === 'shield' ? playShieldMatch(c, fx.h, fx.a, un, false, side) : fx.comp === 'odc' ? playODC(c, fx.h, fx.a, un, false, side) : playBBL(c, fx.h, fx.a, un, null, false, side);
+  const fin = typeof fx.r === 'string';
+  if (fx.comp === 'bbl') { bblPreseasonClose(c); if (!fin) c.bbl.curRound = fx.r; }
+  const m = fx.comp === 'shield' ? playShieldMatch(c, fx.h, fx.a, un, fin, side) : fx.comp === 'odc' ? playODC(c, fx.h, fx.a, un, false, side) : playBBL(c, fx.h, fx.a, un, fin ? BBL_CLUBS[fx.h].home : null, fin, side);
   m.dom = { comp: fx.comp, r: fx.r, h: fx.h, a: fx.a };
   return m;
 }
@@ -4111,6 +4165,8 @@ function finishDomMatch(c, m) {
   const d = m.dom, o = d.comp === 'shield' ? c.shield : d.comp === 'odc' ? c.odc : c.bbl;
   if (!o.pre) o.pre = []; o.pre.push([d.r, d.h, d.a]);
   if (o.pending) o.pending = o.pending.filter(x => !(x[0] === d.r && x[1] === d.h && x[2] === d.a));
+  if (d.comp === 'bbl' && typeof d.r === 'string') { recordMatch(c, m, 'bbl', {}); bblFinalResult(c, m, +d.r.slice(1), d.h, d.a); simBBLFinals(c, null); bump(c); return; }
+  if (d.comp === 'shield' && d.r === 'final') { recordMatch(c, m, 'shield', { final: true }); shieldFinalApply(c, m, d.h, d.a); bump(c); return; }
   if (d.comp === 'bbl' && o.finalsDue && !(o.pending || []).length) { recordMatch(c, m, d.comp, {}); bblApply(c, m, d.r, d.h, d.a); simBBLFinals(c, null); bump(c); return; }
   recordMatch(c, m, d.comp, {});
   if (d.comp === 'shield') shieldApply(c, m, d.r, d.h, d.a); else if (d.comp === 'odc') odcResult(o, m, d.r, d.h, d.a); else bblApply(c, m, d.r, d.h, d.a);
@@ -4378,7 +4434,7 @@ function domPlayer(c, nat, team, level, youth) {
   const target = clamp(Math.round(level + (Math.random() + Math.random() + Math.random() - 1.5) * 7 - (youth ? 6 : age <= 21 ? 3 : 0)), 45, 80);
   domShift(p, target);
   const o = overall(p);
-  p.potRaw = age <= 23 ? Math.min(95, o + rint(3, 16) + (Math.random() < 0.05 ? 6 : 0)) : o + rint(0, 3);
+  p.potRaw = age <= 23 ? clamp(o + rint(3, 16) + (Math.random() < 0.05 ? 6 : 0) + Math.round(intakeNudge(c, nat)), o, 95) : o + rint(0, 3);
   p.peak = potential(p); p.peakWB = Math.max(wbOverall(p, 'odi'), wbOverall(p, 't20'));
   p.regen = false; p.dt = team; p.morale = 65; p.hist = [{ y: curSeason(c), o: overall(p), p: potential(p) }];
   delete p.wbo; wbPrep(p);
@@ -4554,7 +4610,14 @@ function addAlert(c, title, text, go) { (c.alerts = c.alerts || []).push({ title
 // your club's match is never simulated without asking you
 function bblPendingSim(c, i) {
   const o = c.bbl, x = (o.pending || [])[i]; if (!x) return;
-  const [r, h, a] = x; o.curRound = r;
+  const [r, h, a] = x;
+  if (typeof r === 'string') { // a final
+    const m = playBBL(c, h, a, bblUnavail(c), BBL_CLUBS[h].home, true);
+    (o.pre = o.pre || []).push([r, h, a]); o.pending.splice(i, 1);
+    bblFinalResult(c, m, +r.slice(1), h, a); simBBLFinals(c, null); bump(c);
+    return `${BBL_STAGES[+r.slice(1)]}: ${m.result.text}`;
+  }
+  o.curRound = r;
   const m = playBBL(c, h, a, bblUnavail(c));
   bblApply(c, m, r, h, a);
   (o.pre = o.pre || []).push([r, h, a]);
@@ -4594,6 +4657,7 @@ function playerOfSeries(c, f) {
 function awardSeries(c, f) {
   const pos = playerOfSeries(c, f); if (!pos) return;
   f.pos = pos;
+  if (typeof addHon === 'function') addHon(c, pos.name, f.wc ? 'Player of the tournament' : 'Player of the series', curSeason(c));
   (c.seriesAwards = c.seriesAwards || []).push({ y: curSeason(c), title: f.title || `${FMT_NAME ? (FMT_NAME[f.fmt] || 'Test') : 'Test'} series v ${TEAMS[f.opp] ? TEAMS[f.opp].name : f.opp}`, name: pos.name, text: pos.text });
   news(c, `${f.wc ? 'Player of the tournament' : 'Player of the series'}${f.title ? ` (${f.title})` : ''}: ${pos.name}, ${pos.text}.`, 'good');
 }
@@ -4633,7 +4697,7 @@ function awardsNight(c, y, report) {
   const review = { y, awards: aw, rec, trophies: tr.map(t => `${t.name}${t.detail ? ' (' + t.detail + ')' : ''}`), tops, series: (c.seriesAwards || []).filter(x => x.y === y),
     retired: ((report && report.retired) || []).slice().sort((a, b) => (/\(AUS/.test(b) ? 1 : 0) - (/\(AUS/.test(a) ? 1 : 0)).slice(0, 8), improved: ((report && report.improved) || []).slice().sort((a, b) => b[1] - a[1]).slice(0, 6).map(x => `${x[0]} (+${x[1]})`) };
   (c.reviews = c.reviews || []).unshift(review); if (c.reviews.length > 10) c.reviews.length = 10;
-  aw.forEach(a => { if (a.name !== 'You') { const p = P_(c, a.name); if (p) moraleAdd(p, 6); } });
+  aw.forEach(a => { if (a.name !== 'You') { const p = P_(c, a.name); if (p) moraleAdd(p, 6); if (typeof addHon === 'function') addHon(c, a.name, a.award, y); } });
   news(c, `Awards night: the Allan Border Medal goes to ${aw[0] ? aw[0].name : 'nobody this year'}.`, 'big');
   addAlert(c, 'review', '', null);
   c.ySt = {};
@@ -4641,8 +4705,24 @@ function awardsNight(c, y, report) {
 // ---------- Manager trophy cabinet ----------
 function addTrophy(c, name, detail) { if (!c.trophies) c.trophies = []; c.trophies.push({ y: curSeason(c), d: c.date, name, detail: detail || '' }); }
 const leadFmt = (p, fmt) => (fmt && fmt !== 'test' && p.leadWB != null ? p.leadWB : p.lead);
+// 5.7.1: NaN attributes were saved as null, and isFinite(null) is true, so the 5.6.1 repair missed them (ratings of 3)
+const badNum = v => v === null || (typeof v === 'number' && !Number.isFinite(v));
+function repairNulls(p) {
+  const s0 = srcPlayer(p.name), h = (p.hist || []).filter(x => Number.isFinite(x.o)), lastO = h.length ? h[h.length - 1].o : 65;
+  let n = 0;
+  const fix = (o, src) => { if (!o) return; const okv = Object.values(o).filter(v => Number.isFinite(v) && v > 0);
+    Object.keys(o).forEach(k => { if (badNum(o[k])) { o[k] = src && Number.isFinite(src[k]) ? src[k] : okv.length ? Math.round(okv.reduce((a, b) => a + b, 0) / okv.length) : lastO; n++; } }); };
+  fix(p.bat, s0 && s0.bat); fix(p.bowl, s0 && s0.bowl);
+  if (badNum(p.keep)) { p.keep = s0 ? s0.keep || 0 : 0; n++; }
+  ['field', 'ground'].forEach(k => { if (badNum(p[k])) { p[k] = s0 && Number.isFinite(s0[k]) ? s0[k] : 65; n++; } });
+  if (p.wbo) ['odi', 't20'].forEach(f => { if (p.wbo[f]) ['bat', 'bowl'].forEach(k => { if (badNum(p.wbo[f][k])) { p.wbo[f][k] = 0; n++; } }); });
+  if (badNum(p.potRaw)) { p.potRaw = Math.max(overall(p), lastO); n++; }
+  if (badNum(p.peak)) { p.peak = potential(p); n++; }
+  return n;
+}
 function srcPlayer(name) { for (const code of NATIONS) { const s = TEAMS[code].squad.find(p => p.name === name); if (s) return s; } return null; }
 function migrate52(c) {
+  if (typeof migrate58 === 'function') { try { migrate58(c); } catch (e) { console.warn(e); } }
   if (!c.m52) {
     c.m52 = true;
     PATCH52.forEach(n => {
@@ -4667,9 +4747,215 @@ function migrate52(c) {
     ['odi', 't20'].forEach(f => { if (p.wbo && p.wbo[f]) ['bat', 'bowl'].forEach(k => { if (!isFinite(p.wbo[f][k])) p.wbo[f][k] = 0; }); });
     if (!isFinite(p.potRaw)) p.potRaw = overall(p);
   })); bump(c); }
+  { let nf = 0; NATIONS.forEach(n => c.players[n].forEach(p => { nf += repairNulls(p); })); if (nf) bump(c); }
   if (!c.acadSeeded && typeof academyKid === 'function') { c.acadSeeded = true; STATE_CODES.forEach(st => { for (let i = 0; i < 2; i++) { const r = academyKid(c, st); r.acad.y = curSeason(c); c.players.AUS.push(r); } }); bump(c); }
   if (c.bbl && typeof bblEnsureContracts === 'function') bblEnsureContracts(c);
   c.v = Math.max(c.v || 0, 6);
+}
+</script>
+<script>// ===== VERSION 5.8 ADDITIONS: records book, milestones, Hall of Fame =====
+// Approximate real white-ball careers up to mid-2026 for well-known current players:
+// [matches, runs, batting average, hundreds, wickets, bowling average]
+const PRESTATS_WB = {
+  odi: {
+    'Virat Kohli': [305, 14250, 57.5, 52, 5, 33], 'Rohit Sharma': [276, 11250, 48.8, 32, 8, 64], 'Steve Smith': [170, 5800, 43.3, 12, 28, 34.7],
+    'David Warner': [161, 6932, 45.3, 22, 0, 0], 'Glenn Maxwell': [149, 3990, 33.8, 4, 77, 47], 'Mitchell Starc': [130, 650, 13, 0, 250, 23.5],
+    'Pat Cummins': [88, 650, 15, 0, 141, 28.5], 'Josh Hazlewood': [94, 250, 10, 0, 145, 26], 'Adam Zampa': [115, 400, 12, 0, 190, 28.5],
+    'Travis Head': [80, 3200, 44, 8, 25, 40], 'Mitchell Marsh': [95, 2900, 35, 3, 60, 38], 'Marnus Labuschagne': [66, 2100, 34, 2, 9, 40],
+    'Alex Carey': [85, 2300, 34, 2, 0, 0], 'Joe Root': [185, 7400, 48, 19, 28, 47], 'Jos Buttler': [190, 5500, 39, 11, 0, 0], 'Ben Stokes': [114, 3463, 39, 5, 74, 41],
+    'Babar Azam': [135, 6200, 52, 19, 0, 0], 'Mohammad Rizwan': [90, 2800, 42, 4, 0, 0], 'Kane Williamson': [170, 7200, 48.5, 15, 37, 40],
+    'Quinton de Kock': [160, 6900, 45, 22, 0, 0], 'Shubman Gill': [60, 2900, 58, 8, 0, 0], 'Jasprit Bumrah': [90, 150, 7, 0, 150, 23.5],
+    'Rashid Khan': [115, 1400, 19, 0, 205, 20], 'Shaheen Shah Afridi': [70, 300, 12, 0, 140, 24], 'Trent Boult': [120, 700, 13, 0, 215, 24.5],
+    'Kagiso Rabada': [110, 700, 15, 0, 170, 27], 'Ravindra Jadeja': [205, 2900, 32.6, 0, 230, 35], 'Hardik Pandya': [94, 1900, 34, 0, 91, 36],
+    'Shai Hope': [140, 5700, 50, 18, 0, 0], 'Kusal Mendis': [150, 4900, 35, 5, 0, 0], 'Mitchell Santner': [115, 1600, 27, 0, 125, 37],
+    'Shreyas Iyer': [70, 2900, 48, 5, 0, 0], 'KL Rahul': [90, 3300, 48, 7, 0, 0], 'Kuldeep Yadav': [115, 300, 10, 0, 185, 26],
+  },
+  t20i: {
+    'Virat Kohli': [125, 4188, 48.7, 1, 4, 51], 'Rohit Sharma': [159, 4231, 32, 5, 1, 113], 'Steve Smith': [67, 1094, 24.9, 0, 0, 0],
+    'David Warner': [110, 3277, 33.4, 1, 0, 0], 'Glenn Maxwell': [124, 2800, 29.5, 5, 49, 28], 'Mitchell Starc': [65, 100, 8, 0, 79, 23.8],
+    'Pat Cummins': [57, 150, 10, 0, 66, 25], 'Josh Hazlewood': [60, 20, 5, 0, 80, 21], 'Adam Zampa': [110, 100, 6, 0, 130, 21.5],
+    'Travis Head': [40, 1150, 32, 0, 1, 50], 'Mitchell Marsh': [75, 2100, 33, 0, 23, 30], 'Jos Buttler': [140, 3800, 35, 1, 0, 0],
+    'Babar Azam': [130, 4300, 39.5, 3, 0, 0], 'Mohammad Rizwan': [106, 3414, 47, 1, 0, 0], 'Kane Williamson': [93, 2575, 33.4, 0, 6, 29],
+    'Quinton de Kock': [95, 2600, 28, 1, 0, 0], 'Suryakumar Yadav': [95, 2800, 37, 4, 0, 0], 'Jasprit Bumrah': [80, 20, 4, 0, 100, 18],
+    'Rashid Khan': [100, 500, 13, 0, 170, 14], 'Shaheen Shah Afridi': [90, 200, 8, 0, 115, 22], 'Trent Boult': [60, 50, 6, 0, 85, 21],
+    'Kagiso Rabada': [65, 100, 8, 0, 70, 24], 'Ravindra Jadeja': [74, 515, 21, 0, 54, 29], 'Hardik Pandya': [120, 1900, 27, 0, 95, 26],
+    'Mitchell Santner': [115, 800, 20, 0, 140, 21], 'Arshdeep Singh': [70, 60, 6, 0, 105, 18.5], 'Tim David': [60, 1300, 32, 0, 0, 0],
+    'Shai Hope': [45, 1000, 28, 0, 0, 0], 'Kusal Mendis': [80, 2200, 27, 0, 0, 0], 'Wanindu Hasaranga': [80, 700, 15, 0, 130, 15.5],
+  },
+};
+// Real all-time records before the career starts (shown as a benchmark above the in-save lists)
+const REAL_REC = {
+  test: { hs: 'Brian Lara 400* (WI v ENG, 2004)', bb: 'Jim Laker 10/53 (ENG v AUS, 1956)', hi: 'Sri Lanka 952/6d (v IND, 1997)', lo: 'New Zealand 26 (v ENG, 1955)', pt: '624: Kumar Sangakkara and Mahela Jayawardene (SL v SA, 2006)' },
+  odi: { hs: 'Rohit Sharma 264 (IND v SL, 2014)', bb: 'Chaminda Vaas 8/19 (SL v ZIM, 2001)', hi: 'England 498/4 (v NED, 2022)', pt: '372: Chris Gayle and Marlon Samuels (WI v ZIM, 2015)' },
+  t20i: { hs: 'Aaron Finch 172 (AUS v ZIM, 2018)', hi: 'Zimbabwe 344/4 (v Gambia, 2024)' },
+};
+const REC_COMPS = ['test', 'odi', 't20i', 'shield', 'odc', 'bbl'], REC_N = 10, INTL3 = ['test', 'odi', 't20i'];
+function recPush(list, e) { list.push(e); list.sort((a, b) => b.v - a.v); if (list.length > REC_N) list.length = REC_N; }
+function recBlock(c, comp) { if (!c.rec) c.rec = {}; return c.rec[comp] || (c.rec[comp] = { hs: [], bb: [], hi: [], lo: [], pt: [], gr: {} }); }
+function recGround(r, ven, k, e) { const g = r.gr[ven] || (r.gr[ven] = {}); if (!g[k] || e.v > g[k].v) g[k] = e; }
+// called from recordMatch after the stats are updated
+function recHook(c, m, comp) {
+  if (!REC_COMPS.includes(comp) || !m.innings.length) return;
+  const r = recBlock(c, comp), y = curSeason(c), ven = m.venue.name, lo = !!m.lo, intl = INTL3.includes(comp);
+  m.innings.forEach(inn => {
+    if (inn.so) return;
+    const bt = m.teams[inn.bat], bw = m.teams[inn.bowl], base = { tm: bt.short, op: bw.short, ven, y };
+    inn.cards.forEach((cd, i) => {
+      if (cd.status === 'dnb') return;
+      const no = cd.status !== 'out', e = Object.assign({ n: bt.players[i].name, v: cd.runs * 2 + (no ? 1 : 0), t: `${cd.runs}${no ? '*' : ''}`, b: cd.balls }, base);
+      recPush(r.hs, e); if (intl) recGround(r, ven, 'hs', e);
+    });
+    Object.keys(inn.bowling).forEach(i => {
+      const f = inn.bowling[i]; if (!f.wkts) return;
+      const e = Object.assign({ n: bw.players[i].name, v: f.wkts * 1000 - f.runs, t: `${f.wkts}/${f.runs}`, tm: bw.short, op: bt.short }, { ven, y });
+      recPush(r.bb, e); if (intl) recGround(r, ven, 'bb', e);
+    });
+    const tot = Object.assign({ n: bt.name, v: inn.runs, t: `${inn.runs}${inn.wkts < 10 ? '/' + inn.wkts : ''}${inn.declared ? 'd' : ''}` }, base);
+    recPush(r.hi, tot); if (intl) recGround(r, ven, 'hi', tot);
+    if (inn.wkts >= 10) recPush(r.lo, Object.assign({}, tot, { v: -inn.runs }));
+    // partnerships, rebuilt from the batting order and the fall of wickets
+    try {
+      const ord = (inn.order || []).slice(); if (ord.length < 2) return;
+      let a = ord[0], b = ord[1], nx = 2, last = 0;
+      const nm = k => (bt.players[k] || {}).name || '?';
+      const add = (runs, wkt, un) => { if (runs > 0) recPush(r.pt, Object.assign({ n: `${nm(a)} and ${nm(b)}`, v: runs, t: `${runs}${un ? '*' : ''}`, w: wkt }, base)); };
+      for (const f of inn.fow) {
+        add(f.runs - last, f.wkt, false); last = f.runs;
+        const out = bt.players.findIndex(p => p.name === f.name);
+        if (nx >= ord.length) { a = b = null; break; }
+        if (out === a) a = ord[nx++]; else b = ord[nx++];
+      }
+      if (a != null && b != null && inn.runs > last) add(inn.runs - last, inn.wkts + 1, true);
+    } catch (e) { /* records never block a result */ }
+  });
+  if (intl) mileCheck(c, m, comp);
+}
+// career totals: real numbers before the save (Tests and the best-known white-ball players) plus everything in the save
+function careerLine(c, name, comp) {
+  const pre = comp === 'test' ? (typeof PRESTATS !== 'undefined' ? PRESTATS[name] : null) : (PRESTATS_WB[comp] || {})[name];
+  const s = (c.stats[name] || {})[comp] || (c.retC && c.retC[name] && c.retC[name].s[comp] ? retLine(c.retC[name].s[comp]) : null);
+  if (!pre && !(s && s.m)) return null;
+  const pm = pre ? pre[0] : 0, pr = pre ? pre[1] : 0, pdis = pre && pre[2] ? pr / pre[2] : 0, ph = pre ? pre[3] : 0, pw = pre ? pre[4] : 0, pbr = pre ? pre[4] * pre[5] : 0;
+  const m = pm + (s ? s.m : 0), runs = Math.round(pr + (s ? s.runs : 0)), dis = pdis + (s ? s.inn - s.no : 0), h100 = ph + (s ? s.h100 : 0), wk = pw + (s ? s.wk : 0), bRuns = pbr + (s ? s.bRuns : 0);
+  return { m, runs, avg: dis > 0 ? runs / dis : 0, h100, wk, bavg: wk ? bRuns / wk : 0, hs: s ? s.hs : 0, hsNo: s ? s.hsNo : false, bw: s ? s.bw : 0, br: s ? s.br : 0, pre: pre ? { m: pm, runs: pr, wk: pw } : null, game: s ? { m: s.m, runs: s.runs, wk: s.wk, h100: s.h100 } : null };
+}
+// compact domestic and international lines kept for retired players, so careers survive save pruning
+function retPack(s) { return [s.m, s.inn, s.no, s.runs, s.h100, s.h50, s.hs, s.hsNo ? 1 : 0, s.wk, s.bRuns, s.bw, s.br, s.fiveW]; }
+function retLine(a) { return { m: a[0], inn: a[1], no: a[2], runs: a[3], h100: a[4], h50: a[5], hs: a[6], hsNo: !!a[7], wk: a[8], bRuns: a[9], bw: a[10], br: a[11], fiveW: a[12] }; }
+const MILES = {
+  test: { m: [50, 100, 150], runs: [5000, 8000, 10000, 12000, 15000], wk: [200, 300, 400, 500, 600, 700] },
+  odi: { m: [100, 200, 300], runs: [5000, 8000, 10000, 12000, 14000, 15000], wk: [150, 200, 250, 300] },
+  t20i: { m: [50, 100, 150], runs: [2000, 3000, 4000, 5000], wk: [50, 100, 150, 200] },
+};
+function mileCheck(c, m, comp) {
+  const F = { test: 'Test', odi: 'ODI', t20i: 'T20I' }[comp], M = MILES[comp];
+  const add = {};
+  m.innings.forEach(inn => {
+    if (inn.so) return;
+    inn.cards.forEach((cd, i) => { if (cd.status === 'dnb') return; const n = m.teams[inn.bat].players[i].name; (add[n] = add[n] || { runs: 0, wk: 0 }).runs += cd.runs; });
+    Object.keys(inn.bowling).forEach(i => { const n = m.teams[inn.bowl].players[i].name; (add[n] = add[n] || { runs: 0, wk: 0 }).wk += inn.bowling[i].wkts; });
+  });
+  m.teams.forEach(t => t.players.forEach(p => {
+    const L = careerLine(c, p.name, comp); if (!L) return;
+    const d = add[p.name] || { runs: 0, wk: 0 }, prev = { m: L.m - 1, runs: L.runs - d.runs, wk: L.wk - d.wk };
+    const P = P_(c, p.name), nat = P ? P.nat : t.code;
+    ['m', 'runs', 'wk'].forEach(k => M[k].forEach(th => {
+      if (prev[k] < th && L[k] >= th) {
+        const what = k === 'm' ? `${th} ${F}${comp === 'test' ? 's' : 's'}` : `${th.toLocaleString('en-AU')} ${F} ${k === 'runs' ? 'runs' : 'wickets'}`;
+        const ms = c.mile || (c.mile = []);
+        ms.unshift({ y: curSeason(c), d: c.date, n: p.name, nat, comp, t: what }); if (ms.length > 400) ms.length = 400;
+        const top = (k === 'runs' && th >= (comp === 'test' ? 10000 : comp === 'odi' ? 10000 : 4000)) || (k === 'wk' && th >= (comp === 'test' ? 500 : comp === 'odi' ? 300 : 150)) || (k === 'm' && th >= (comp === 'test' ? 150 : 300));
+        if (nat === 'AUS' || top) news(c, `Milestone: ${p.name} reaches ${what}${nat !== 'AUS' ? ` for ${TEAMS[nat] ? TEAMS[nat].name : nat}` : ''}.`, top ? 'big' : 'good');
+      }
+    }));
+  }));
+}
+// career lists for the records book (all players in the save, retired players kept, plus legends for Tests)
+function careerRows(c, comp) {
+  const rows = [], seen = new Set();
+  const push = (name, nat, active) => { if (seen.has(name)) return; const L = careerLine(c, name, comp); if (L && L.m) { seen.add(name); rows.push(Object.assign({ name, nat, active }, L)); } };
+  NATIONS.forEach(code => c.players[code].forEach(p => push(p.name, code, !p.retired)));
+  Object.keys(c.retC || {}).forEach(n => push(n, c.retC[n].nat, false));
+  Object.keys(c.stats || {}).forEach(n => push(n, (c.retC && c.retC[n] && c.retC[n].nat) || ((c.retiredStars || []).find(r => r.name === n) || {}).nat || '', false));
+  if (comp === 'test') LEGENDS.forEach(([name, nat, m, runs, avg, h100, wk, bavg]) => { if (!seen.has(name)) { seen.add(name); rows.push({ name, nat, m, runs, avg, h100, wk, bavg, legend: true }); } });
+  return rows;
+}
+
+// ---------- Hall of Fame ----------
+function honOf(c, name) { return (c.hon && c.hon[name]) || []; }
+function addHon(c, name, what, y) { if (!name || name === 'You') return; const h = c.hon || (c.hon = {}); (h[name] = h[name] || []).push([what, y]); }
+function hofLines(c, name) { const o = {}; INTL3.forEach(k => { const L = careerLine(c, name, k); if (L && L.m) o[k] = L; }); ['shield', 'odc', 'bbl'].forEach(k => { const s = (c.stats[name] || {})[k] || (c.retC && c.retC[name] && c.retC[name].s[k] ? retLine(c.retC[name].s[k]) : null); if (s && s.m) o[k] = { m: s.m, runs: s.runs, avg: s.inn - s.no > 0 ? s.runs / (s.inn - s.no) : 0, h100: s.h100, wk: s.wk, bavg: s.wk ? s.bRuns / s.wk : 0 }; }); return o; }
+function hofWhy(c, name, L) {
+  const why = [], t = L.test, o = L.odi, w = L.t20i, abm = honOf(c, name).filter(h => h[0] === 'Allan Border Medal').length;
+  if (t) { const sc = goatScore(t); if (sc.all >= 110) why.push(sc.ar >= 60 ? 'one of the great Test all-rounders' : sc.bat >= sc.bowl ? 'one of the great Test batters' : 'one of the great Test bowlers'); else if (t.m >= 130) why.push(`${t.m} Tests`); }
+  if (o && (o.runs >= 8000 || o.wk >= 250)) why.push(o.runs >= 8000 ? `${o.runs.toLocaleString('en-AU')} ODI runs` : `${o.wk} ODI wickets`);
+  if (w && (w.runs >= 3500 || w.wk >= 130)) why.push(w.runs >= 3500 ? `${w.runs.toLocaleString('en-AU')} T20I runs` : `${w.wk} T20I wickets`);
+  if (abm >= 2) why.push(`${abm} Allan Border Medals`);
+  const sh = L.shield, bb = L.bbl;
+  if (sh && (sh.runs >= 11500 || sh.wk >= 480)) why.push('a Sheffield Shield great');
+  if (bb && (bb.runs >= 4500 || bb.wk >= 170)) why.push('a BBL great');
+  return why;
+}
+function hofSeed(c) {
+  if (c.hof) return;
+  c.hof = LEGENDS.map(([name, nat, m, runs, avg, h100, wk, bavg]) => ({ n: name, nat, role: wk >= 150 && runs >= 3000 ? 'AR' : wk >= 150 ? 'BOWL' : 'BAT', y: 0, f: 1, lines: { test: { m, runs, avg, h100, wk, bavg } }, why: [] }));
+  c.hofQ = c.hofQ || [];
+  // players who retired in this save before 5.8 are considered at the next season's end
+  (c.retiredStars || []).forEach(r => { if (!c.hofQ.some(q => q.n === r.name)) c.hofQ.push({ n: r.name, nat: r.nat, role: r.wk >= 150 && r.runs >= 3000 ? 'AR' : r.wk >= 150 ? 'BOWL' : 'BAT', ry: curSeason(c) - 1 }); });
+}
+// at retirement: keep the full career and queue the player for the Hall of Fame vote
+function retire58(c, p) {
+  const st = c.stats[p.name] || {}, keep = {};
+  Object.keys(st).forEach(k => { const s = st[k]; if (s && s.m >= 10 && REC_COMPS.includes(k)) keep[k] = retPack(s); });
+  const notable = INTL3.some(k => st[k] && st[k].m >= 15) || ['shield', 'odc', 'bbl'].some(k => st[k] && (st[k].runs >= 1500 || st[k].wk >= 60));
+  if (notable || (typeof PRESTATS !== 'undefined' && PRESTATS[p.name]) || PRESTATS_WB.odi[p.name] || PRESTATS_WB.t20i[p.name]) {
+    (c.retC || (c.retC = {}))[p.name] = { nat: p.nat, y: curSeason(c), s: keep };
+    hofSeed(c);
+    c.hofQ.push({ n: p.name, nat: p.nat, role: p.role, ry: curSeason(c), peak: p.peak || overall(p), peakWB: p.peakWB || 0, from: (p.hist && p.hist[0] && p.hist[0].y) || null });
+  }
+}
+function hofVote(c, y) {
+  hofSeed(c);
+  const keepQ = [];
+  c.hofQ.forEach(q => {
+    if (q.ry >= y) { keepQ.push(q); return; } // one full season after retiring
+    if (c.hof.some(h => h.n === q.n)) return;
+    const L = hofLines(c, q.n), why = hofWhy(c, q.n, L);
+    if (!why.length) return;
+    c.hof.push({ n: q.n, nat: q.nat, role: q.role, y, ry: q.ry, peak: q.peak, peakWB: q.peakWB, from: q.from, lines: L, why, hon: honOf(c, q.n).slice() });
+    news(c, `Hall of Fame: ${q.n} (${TEAMS[q.nat] ? TEAMS[q.nat].name : q.nat}) is inducted, ${why[0]}.`, q.nat === 'AUS' ? 'big' : 'good');
+  });
+  c.hofQ = keepQ;
+}
+// players who would be inducted if they retired today (shown as "on track")
+function hofOnTrack(c) {
+  const out = [];
+  NATIONS.forEach(code => c.players[code].forEach(p => { if (p.retired) return; const L = hofLines(c, p.name), why = hofWhy(c, p.name, L); if (why.length) out.push({ n: p.name, nat: code, why, lines: L, age: p.age }); }));
+  return out;
+}
+function migrate58(c) {
+  hofSeed(c);
+  if (!c.hon) {
+    c.hon = {};
+    (c.reviews || []).slice().reverse().forEach(R => (R.awards || []).forEach(a => addHon(c, a.name, a.award, R.y)));
+    (c.seriesAwards || []).forEach(s => addHon(c, s.name, 'Player of the series', s.y));
+  }
+  if (!c.rec) {
+    // rebuild what we can from the archive (full scorecards only; partnerships start fresh)
+    (c.archive || []).forEach(e => {
+      if (!e.card || !REC_COMPS.includes(e.comp)) return;
+      const r = recBlock(c, e.comp), intl = INTL3.includes(e.comp);
+      e.card.forEach(inn => {
+        const tm = e.teams[inn.t], op = e.teams[1 - inn.t], base = { tm, op, ven: e.venue, y: e.y };
+        inn.bat.forEach(([n, runs, balls, , , how]) => { const no = how === 'not out', x = Object.assign({ n, v: runs * 2 + (no ? 1 : 0), t: `${runs}${no ? '*' : ''}`, b: balls }, base); recPush(r.hs, x); if (intl) recGround(r, e.venue, 'hs', x); });
+        inn.bowl.forEach(([n, l, md, runs, w]) => { if (!w) return; const x = { n, v: w * 1000 - runs, t: `${w}/${runs}`, tm: op, op: tm, ven: e.venue, y: e.y }; recPush(r.bb, x); if (intl) recGround(r, e.venue, 'bb', x); });
+        const tot = Object.assign({ n: e.names[inn.t], v: inn.r, t: `${inn.r}${inn.w < 10 ? '/' + inn.w : ''}${inn.d ? 'd' : ''}` }, base);
+        recPush(r.hi, tot); if (intl) recGround(r, e.venue, 'hi', tot);
+        if (inn.w >= 10) recPush(r.lo, Object.assign({}, tot, { v: -inn.r }));
+      });
+    });
+    if (!c.rec) c.rec = {};
+  }
 }
 </script>
 <script>// ===== UI =====
@@ -4699,7 +4985,7 @@ const injTag = p => p.injury ? `<span class="inj" title="${esc(p.injury.what)}">
 const avgS = s => s.inn - s.no > 0 ? (s.runs / (s.inn - s.no)).toFixed(2) : (s.inn ? '-' : '-');
 
 // Saves are compressed (lz-string), about 7 times smaller than raw JSON. Old uncompressed saves still load.
-const GAME_VERSION = '5.7', SAVE_VERSION = 6;
+const GAME_VERSION = '5.8', SAVE_VERSION = 6;
 const CHANGELOG = [
   ['5.7', ['Fatigue now carries between Tests: heavy bowling workloads leave quicks below 100 for the next match, and tired players carry a higher injury risk (see Pathway, Fast-bowler workloads).', 'Media and board pressure only applies to genuine contenders, and it costs far less.', 'Player growth rebalanced: playing (especially Tests and Australia A) now always beats sitting on the bench.', 'Coach domestic matches using state abbreviations, with a Change team button.', 'Bowlers show their wickets per innings in selection, not their batting.', 'Your BBL club never plays without you: each match asks you to coach or simulate it, the matches show on the calendar in purple, and you get alerts when free agency and the draft open. You can also choose to have no club.', 'Recruit overseas players to Australia (Pathway, Overseas recruits): they qualify after three years.', 'Hidden editor: search any player and change nationality, state, BBL club, domestic team, contract, role and more, plus board confidence and reputation.', 'Player of the series and tournament, with live series leaders on the series screen.', 'Awards night and year in review at the end of every season (Allan Border Medal and more). Season stats reset each year; career stats are kept.']],
   ['5.6.1', ['Fixed bowlers showing NaN ratings after a franchise league or Australia A tour. Affected players are repaired automatically.', 'Press conferences no longer ask why an injured player was left out.']],
@@ -4774,15 +5060,16 @@ function readCode(code) {
 function go(s, extra) { screen = s; ui = Object.assign({}, extra || {}); modalFn = null; render(); window.scrollTo(0, 0); }
 function render() {
   if (typeof pressCheck === 'function') pressCheck();
-  const fn = { title: vTitle, board: vBoard, goat: vGoat, hub: vHub, calendar: vCalendar, players: vPlayers, shield: vDomestic, stats: vStats, rankings: vRankings, results: typeof vResults === 'function' ? vResults : vHub, club: typeof vClub === 'function' ? vClub : vHub, pathway: typeof vPathway === 'function' ? vPathway : vHub, squad: vSquadPick, series: vSeries, prematch: vPrematch, match: vMatch }[screen];
+  const fn = { title: vTitle, board: vBoard, goat: vGoat, hub: vHub, calendar: vCalendar, players: vPlayers, shield: vDomestic, stats: vStats, rankings: vRankings, results: typeof vResults === 'function' ? vResults : vHub, club: typeof vClub === 'function' ? vClub : vHub, pathway: typeof vPathway === 'function' ? vPathway : vHub, squad: vSquadPick, series: vSeries, prematch: vPrematch, match: vMatch, records: typeof vRecords === 'function' ? vRecords : vHub }[screen];
   $('#app').innerHTML = (screen === 'title' ? '' : nav()) + fn() + (modalFn ? modalFn() : '');
   bindAll();
   if (typeof bind52 === 'function') bind52();
+  if (typeof bind58 === 'function') bind58();
   if (typeof tableSortApply === 'function') tableSortApply();
 }
 function openModal(fn) { modalFn = fn; render(); }
 function nav() {
-  const items = [['hub', 'Hub'], ['calendar', 'Calendar'], ['board', 'Board'], ['players', 'Players'], ['shield', 'Domestic'], ['stats', 'Stats'], ['rankings', 'Rankings'], ['results', 'Results'], ['club', 'BBL club'], ['pathway', 'Pathway'], ['goat', 'GOAT']];
+  const items = [['hub', 'Hub'], ['calendar', 'Calendar'], ['board', 'Board'], ['players', 'Players'], ['shield', 'Domestic'], ['stats', 'Stats'], ['rankings', 'Rankings'], ['results', 'Results'], ['records', 'Records'], ['club', 'BBL club'], ['pathway', 'Pathway'], ['goat', 'GOAT']];
   return `<div class="nav"><span class="logo cond">CRICKET MANAGER</span>
     ${items.map(([k, l]) => `<button class="navb ${screen === k ? 'on' : ''}" data-go="${k}">${l}</button>`).join('')}
     ${C && C.match && screen !== 'match' ? '<button class="navb primary" data-go="match">Resume match</button>' : ''}
@@ -4946,6 +5233,13 @@ function vPlayers() {
 
 // ---------- Player profile ----------
 function bar(label, v) { const x = Math.round(v); const cls = x >= 85 ? 'e' : x >= 75 ? 'g' : x >= 65 ? 's' : 'b'; return `<div class="attr"><span>${label}</span><span class="abar"><i class="${cls}" style="width:${x}%"></i></span><b>${x}</b></div>`; }
+// 5.8: quiet note for players the game created (not in the real 2026 squads)
+const REAL_NAMES = new Set(Object.keys(TEAMS).flatMap(k => TEAMS[k].squad.map(q => q.name)));
+function genNote(p) {
+  if (REAL_NAMES.has(p.name) && !p.regen) return '';
+  const of = p.regenOf && p.regenOf !== p.name ? ` · came through as ${esc(p.regenOf)} retired` : '';
+  return `<div class="sm" style="margin-top:3px;opacity:.45;font-size:11px">Generated player${of}</div>`;
+}
 function profileModal(name) {
   const p = CR.P_(C, name);
   if (!p) return `<div class="modal-bg"><div class="modal"><p>${esc(name)} has retired.</p><button id="mClose">Close</button></div></div>`;
@@ -4958,7 +5252,8 @@ function profileModal(name) {
   const ranks = [pr ? `Test bat ${pr.bat}${pr.bowl ? ' · bowl ' + pr.bowl : ''}` : '', wr('odi'), wr('t20')].filter(Boolean).join('<br>');
   return `<div class="modal-bg"><div class="modal xl"><div class="top"><div><h2>${esc(p.name)}</h2>
     <div class="mute">${tName(p.nat)}${p.state ? ' · ' + STATES[p.state].name : ''}${club ? ' · ' + esc(clubName(club)) : ''} · Age ${p.age} · ${roleName[p.role]} · ${p.hand === 'L' ? 'Left' : 'Right'}-handed bat${w ? ' · ' + bowlName[w.type] : ''}</div>
-    <div style="margin-top:6px">${formTag(p)} ${morTag(p)} ${injTag(p)}${capTag(p.name)} ${p.nat === 'AUS' ? ((C.contracts || []).includes(p.name) ? '<span class="tag on">CA contract</span>' : '<span class="tag">No contract</span>') : ''} <span class="tag">Leadership ${Math.round(p.lead || 50)}${p.leadWB != null && p.leadWB !== p.lead ? ` (white-ball ${Math.round(p.leadWB)})` : ''}</span> <span class="tag" title="${esc(PERS_DESC[CR.persOf(p)])}">${CR.persOf(p)}</span>${p.farewell ? ` <span class="tag">Final season</span>` : ''} ${styleTag(p) ? `<span class="tag">${styleTag(p)}</span>` : ''} ${p.wbOnly ? '<span class="tag">White-ball only</span>' : ''} ${intlTag(p)} ${p.regen ? '<span class="tag">Regen</span>' : ''}</div></div>
+    ${genNote(p)}
+    <div style="margin-top:6px">${formTag(p)} ${morTag(p)} ${injTag(p)}${capTag(p.name)} ${p.nat === 'AUS' ? ((C.contracts || []).includes(p.name) ? '<span class="tag on">CA contract</span>' : '<span class="tag">No contract</span>') : ''} <span class="tag">Leadership ${Math.round(p.lead || 50)}${p.leadWB != null && p.leadWB !== p.lead ? ` (white-ball ${Math.round(p.leadWB)})` : ''}</span> <span class="tag" title="${esc(PERS_DESC[CR.persOf(p)])}">${CR.persOf(p)}</span>${p.farewell ? ` <span class="tag">Final season</span>` : ''} ${styleTag(p) ? `<span class="tag">${styleTag(p)}</span>` : ''} ${p.wbOnly ? '<span class="tag">White-ball only</span>' : ''} ${intlTag(p)}</div></div>
     <div class="right"><div class="fboxes">${fmBox('test')}${fmBox('odi')}${fmBox('t20')}</div>${ranks ? `<div class="mute sm" style="margin-top:4px">ICC points: ${ranks}</div>` : ''}</div></div>
     <div class="grid3c">
       <div><h3>Batting</h3>${bar('Technique', b.tech)}${bar('Concentration', b.conc)}${bar('Vs pace', b.vPace)}${bar('Vs spin', b.vSpin)}${bar('Off side', b.off)}${bar('On side', b.on)}${bar('Aggression', b.agg)}${bar('Power hitting', b.power)}${bar('Finishing', b.finish)}</div>
@@ -5281,6 +5576,7 @@ function startTest() {
     C.match.pink = !!(f.home && (ui.pinkOn != null ? ui.pinkOn : vk === 'adelaide'));
     [pv.note, C.match.pink ? 'Day-night Test with the pink ball: expect it to swing under the lights in the twilight session.' : ''].filter(Boolean).forEach(t => C.match.events.push({ type: 'info', text: t, day: 1, session: 0, score: '' }));
     if (ui.wx) { C.match.forecast = ui.wx.slice(); C.match.wx = ui.wx.map(w => Math.random() < 0.8 ? w : C.match.wx[0]); }
+    if (ui.wx) C.match.events.forEach(e => { if (e.type === 'info' && / win the toss at /.test(e.text)) e.text = e.text.replace(/Weather: [^.]*\./, `Weather: ${C.match.wx[0].toLowerCase()}.`); }); // 5.7.2: toss line matched the old weather
   }
   C.match.arch = { title: f.title || (f.wc ? f.title : ''), n: f.testIdx + 1, of: f.tests, stage: f.wc ? f.matches[f.testIdx].stage : null, final: !!f.final };
   save(); tab = 'comm'; go('match');
@@ -5543,8 +5839,10 @@ function vBoard() {
 
 // ================= GOAT =================
 function vGoat() {
-  const k = ui.gk || 'all', L = CR.goatLists(C), list = L[k].slice(0, 50);
-  const tabs = [['all', 'Overall'], ['bat', 'Batting'], ['bowl', 'Bowling'], ['ar', 'All-rounders'], ['runs', 'Most runs'], ['wk', 'Most wickets']];
+  const k = ui.gk || 'all';
+  const tabs = [['all', 'Overall'], ['bat', 'Batting'], ['bowl', 'Bowling'], ['ar', 'All-rounders'], ['runs', 'Most runs'], ['wk', 'Most wickets'], ['hof', 'Hall of Fame']];
+  if (k === 'hof' && typeof vHof === 'function') return vHof(`<div class="tabs" style="margin:0">${tabs.map(([v, l]) => `<button data-gk="${v}" class="${k === v ? 'on' : ''}">${l}</button>`).join('')}</div>`);
+  const L = CR.goatLists(C), list = L[k].slice(0, 50);
   const score = r => k === 'runs' ? r.runs : k === 'wk' ? r.wk : r.sc[k];
   return `<div class="wrap"><div class="top"><div><h2>Greatest of all time</h2><p class="mute sm" style="margin:4px 0 0">Real Test careers up to November 2026, plus everything in this save. Legends are fixed; active players climb as they score runs and take wickets.</p></div>
     <div class="tabs" style="margin:0">${tabs.map(([v, l]) => `<button data-gk="${v}" class="${k === v ? 'on' : ''}">${l}</button>`).join('')}</div></div>
@@ -5876,10 +6174,13 @@ function bind52() {
   on('#sackNew', 'onclick', () => { modalFn = null; go('title'); });
   if (C && C.sacked && !modalFn && screen !== 'title' && screen !== 'match') { openModal(sackedModal); return; }
   if (C && !modalFn && screen !== 'title' && screen !== 'match' && (C.alerts || []).length) { openModal(alertModal); return; }
-  if (C && !modalFn && screen !== 'title' && screen !== 'match' && C.club && C.bbl && (C.bbl.pending || []).length) { openModal(bblPendingModal); return; }
+  if (C && !modalFn && screen !== 'title' && screen !== 'match' && (C.club || (C.coachTeam && C.coachTeam.bbl)) && C.bbl && (C.bbl.pending || []).length) { openModal(bblPendingModal); return; }
+  if (C && !modalFn && screen !== 'title' && screen !== 'match' && C.shield && C.shield.finalDue && !C.shield.champ) { openModal(shieldFinalModal); return; }
+  on('#shPlay', 'onclick', () => { const [h, a] = C.shield.finalDue; modalFn = null; C.match = CR.buildDomMatch(C, { comp: 'shield', r: 'final', h, a }, C.coachTeam.shield); save(); tab = 'comm'; go('match'); });
+  on('#shSim', 'onclick', () => { simShieldFinal(C, null, true); modalFn = null; save(); render(); });
   on('#alertOk', 'onclick', () => { C.alerts.shift(); modalFn = null; save(); render(); });
   on('#alertGo', 'onclick', () => { const g = C.alerts.shift().go; modalFn = null; save(); go(g); });
-  on('#bblPlay', 'onclick', () => { const [r, h, a] = C.bbl.pending[0]; modalFn = null; C.match = CR.buildDomMatch(C, { comp: 'bbl', r, h, a }, C.club.code); save(); tab = 'comm'; go('match'); });
+  on('#bblPlay', 'onclick', () => { const [r, h, a] = C.bbl.pending[0]; const mine = (C.club && C.club.code) || (C.coachTeam || {}).bbl; modalFn = null; C.match = CR.buildDomMatch(C, { comp: 'bbl', r, h, a }, h === mine || a === mine ? mine : h); save(); tab = 'comm'; go('match'); });
   on('#bblSim', 'onclick', () => { const t = CR.bblPendingSim(C, 0); CR.news(C, `BBL (simulated): ${t}`); modalFn = null; save(); render(); });
   on('#clubLeave', 'onclick', () => { CR.leaveClub(C); save(); render(); });
   on('[data-recruit]', 'onclick', e => { ui.recMsg = CR.approachPlayer(C, e.currentTarget.dataset.recruit); save(); render(); });
@@ -6114,7 +6415,7 @@ function coachCard(comp) {
   return `<div class="card" style="margin-bottom:14px"><div class="row"><h3>Coach a match in the next round</h3><span class="sm">Your team: <b>${mine ? ab(mine) : 'none'}</b> ${picker}</span></div>
     <div class="mute sm" style="margin-bottom:6px">Step in as coach for any side. The result counts on the ladder and in everyone's stats.</div>
     ${fx.map((f, i) => { const ours = mine && (f.h === mine || f.a === mine);
-      return `<div class="row"><span>${ab(f.h)} v ${ab(f.a)}${ours ? ' <span class="tag">your team</span>' : ''}</span><span>${ours ? `<button class="mini primary" data-coach="${i}" data-cc="${comp}" data-side="${f.h === mine ? 'h' : 'a'}">Coach ${ab(mine)}</button>`
+      return `<div class="row"><span>${f.r === 'final' ? '<b>Final</b> · ' : ''}${ab(f.h)} v ${ab(f.a)}${ours ? ' <span class="tag">your team</span>' : ''}</span><span>${ours ? `<button class="mini primary" data-coach="${i}" data-cc="${comp}" data-side="${f.h === mine ? 'h' : 'a'}">Coach ${ab(mine)}</button>`
         : `<select class="coachSide" data-i="${i}"><option value="h">${ab(f.h)}</option><option value="a">${ab(f.a)}</option></select> <button class="mini" data-coach="${i}" data-cc="${comp}" data-side="pick">Coach</button>`}</span></div>`; }).join('')}</div>`;
 }
 function startCoach(comp, i, sideKey) {
@@ -6226,9 +6527,16 @@ function alertModal() {
 function bblPendingModal() {
   const o = C.bbl, x = (o.pending || [])[0]; if (!x) return '';
   const [r, h, a] = x;
-  return `<div class="modal-bg locked"><div class="modal wide"><div class="mute sm">Big Bash League · Round ${r + 1}</div><h2>${esc(BBL_CLUBS[h].name)} v ${esc(BBL_CLUBS[a].name)}</h2>
-    <p>Your club is playing. Coach the match yourself, or let your assistant run it and see the result.</p>
+  const fin = typeof r === 'string';
+  return `<div class="modal-bg locked"><div class="modal wide"><div class="mute sm">Big Bash League · ${fin ? `Finals: ${BBL_STAGES[+r.slice(1)]}` : `Round ${r + 1}`}</div><h2>${esc(BBL_CLUBS[h].name)} v ${esc(BBL_CLUBS[a].name)}</h2>
+    <p>${fin ? (r === 'F3' ? 'Your team is in the BBL Final.' : 'Your team is in the finals.') + ' Coach it yourself, or let your assistant run it.' : 'Your club is playing. Coach the match yourself, or let your assistant run it and see the result.'}</p>
     <div class="btns"><button class="primary" id="bblPlay">Coach it</button><button id="bblSim">Simulate it</button></div></div></div>`;
+}
+function shieldFinalModal() {
+  const [h, a] = C.shield.finalDue;
+  return `<div class="modal-bg locked"><div class="modal wide"><div class="mute sm">Sheffield Shield · Final</div><h2>${esc(STATES[h].name)} v ${esc(STATES[a].name)}</h2>
+    <p>Your state, ${esc(STATES[C.coachTeam.shield].name)}, is in the Shield final. ${esc(STATES[h].name)} host it and win the Shield if it's drawn. Coach it yourself, or let it be simulated.</p>
+    <div class="btns"><button class="primary" id="shPlay">Coach it</button><button id="shSim">Simulate it</button></div></div></div>`;
 }
 // ---------- Series leaders and year in review ----------
 function seriesLeadersHTML(f) {
@@ -6298,6 +6606,102 @@ function tableSortApply() {
   });
 }
 </script>
+<script>// ===== VERSION 5.8 UI: records book and Hall of Fame =====
+const REC_COMP_NAMES = [['test', 'Tests'], ['odi', 'ODIs'], ['t20i', 'T20Is'], ['shield', 'Shield'], ['odc', 'One-Day Cup'], ['bbl', 'BBL']];
+const seasonTxt = y => (CR.seasonLabel ? CR.seasonLabel(y) : y);
+const isLive = n => { const p = CR.P_(C, n); return p && !p.retired; };
+const who = n => isLive(n) ? pl(n) : (C.hof || []).some(h => h.n === n) ? `<a class="pl" data-hof="${esc(n)}">${esc(n)}</a>` : esc(n);
+function recTable(title, rows, opts) {
+  opts = opts || {};
+  const real = opts.real ? `<div class="mute sm" style="margin:-4px 0 8px">Record before your career: ${esc(opts.real)}</div>` : '';
+  if (!rows.length) return `<div class="card"><h3>${title}</h3>${real}<p class="mute sm">Nothing yet.</p></div>`;
+  return `<div class="card scroll"><h3>${title}</h3>${real}<table><tr><th>#</th><th>${opts.team ? 'Team' : 'Player'}</th><th class="n">${opts.label || 'Score'}</th>${opts.balls ? '<th class="n">Balls</th>' : ''}<th>Match</th><th>Venue</th><th>Season</th></tr>
+    ${rows.map((e, i) => `<tr><td>${i + 1}</td><td>${opts.team ? esc(e.n) : opts.pair ? e.n.split(' and ').map(who).join(' and ') : who(e.n)}</td><td class="n"><b>${esc(e.t)}</b>${opts.pair && e.w ? ` <span class="mute sm">(${ordinal(e.w)} wkt)</span>` : ''}</td>${opts.balls ? `<td class="n">${e.b != null ? e.b : '-'}</td>` : ''}<td>${esc(e.tm)} v ${esc(e.op)}</td><td class="sm">${esc(e.ven)}</td><td class="sm">${seasonTxt(e.y)}</td></tr>`).join('')}</table></div>`;
+}
+const ordinal = n => n + (n % 10 === 1 && n !== 11 ? 'st' : n % 10 === 2 && n !== 12 ? 'nd' : n % 10 === 3 && n !== 13 ? 'rd' : 'th');
+function careerTable(title, rows, cols) {
+  return `<div class="card scroll"><h3>${title}</h3>${rows.length ? `<table><tr><th>#</th><th>Player</th><th>Team</th>${cols.map(c => `<th class="n">${c[0]}</th>`).join('')}</tr>
+    ${rows.map((r, i) => `<tr class="${r.active && r.nat === 'AUS' ? 'us' : ''}"><td>${i + 1}</td><td>${who(r.name)}${r.active ? ' <span class="tag on">Active</span>' : r.legend ? ' <span class="tag">Legend</span>' : ''}</td><td>${esc(r.nat || '')}</td>${cols.map(c => `<td class="n">${c[1](r)}</td>`).join('')}</tr>`).join('')}</table>` : '<p class="mute sm">Nothing yet.</p>'}</div>`;
+}
+function vRecords() {
+  const cp = ui.rcomp || 'test', intl = ['test', 'odi', 't20i'].includes(cp), lo = cp !== 'test' && cp !== 'shield';
+  const secs = [['ind', 'Individual'], ['team', 'Team'], ['pt', 'Partnerships'], ['car', 'Careers']].concat(intl ? [['gr', 'Grounds'], ['mile', 'Milestones']] : []);
+  const sec = secs.some(s => s[0] === ui.rsec) ? ui.rsec : 'ind';
+  const R = (C.rec && C.rec[cp]) || { hs: [], bb: [], hi: [], lo: [], pt: [], gr: {} }, real = REAL_REC[cp] || {};
+  let body = '';
+  if (sec === 'ind') body = `<div class="grid2">${recTable('Highest individual scores', R.hs, { real: real.hs, balls: lo })}${recTable('Best bowling in an innings', R.bb, { real: real.bb, label: 'Figures' })}</div>`;
+  if (sec === 'team') body = `<div class="grid2">${recTable('Highest team totals', R.hi, { team: 1, real: real.hi, label: 'Total' })}${recTable('Lowest completed totals', R.lo, { team: 1, real: real.lo, label: 'Total' })}</div>`;
+  if (sec === 'pt') body = recTable('Highest partnerships', R.pt, { pair: 1, real: real.pt, label: 'Runs' });
+  if (sec === 'car') {
+    const rows = careerRows(C, cp), top = (f, min) => rows.filter(min || (() => true)).sort((a, b) => f(b) - f(a)).slice(0, 15);
+    const pre = intl ? `<p class="mute sm" style="margin:0 0 10px">${cp === 'test' ? 'Includes real Test careers up to 2026 and the all-time legends.' : 'Includes approximate real careers up to 2026 for the best-known current players.'} Everything since is from this save.</p>` : '<p class="mute sm" style="margin:0 0 10px">Everything played in this save.</p>';
+    const minI = cp === 'test' ? 2000 : intl ? 1500 : 1000, minW = cp === 'test' ? 100 : intl ? 50 : 30;
+    body = pre + `<div class="grid2">${careerTable('Most runs', top(r => r.runs), [['M', r => r.m], ['Runs', r => r.runs.toLocaleString('en-AU')], ['Avg', r => r.avg ? r.avg.toFixed(2) : '-'], ['100s', r => r.h100]])}
+      ${careerTable('Most wickets', top(r => r.wk), [['M', r => r.m], ['Wkts', r => r.wk], ['Avg', r => r.wk ? r.bavg.toFixed(2) : '-']])}
+      ${careerTable('Most hundreds', top(r => r.h100, r => r.h100 > 0), [['M', r => r.m], ['100s', r => r.h100], ['Runs', r => r.runs.toLocaleString('en-AU')]])}
+      ${careerTable('Most matches', top(r => r.m), [['M', r => r.m], ['Runs', r => r.runs.toLocaleString('en-AU')], ['Wkts', r => r.wk]])}
+      ${careerTable(`Best batting average (${minI}+ runs)`, top(r => r.avg, r => r.runs >= minI), [['M', r => r.m], ['Runs', r => r.runs.toLocaleString('en-AU')], ['Avg', r => r.avg.toFixed(2)]])}
+      ${careerTable(`Best bowling average (${minW}+ wkts)`, top(r => -r.bavg, r => r.wk >= minW), [['M', r => r.m], ['Wkts', r => r.wk], ['Avg', r => r.bavg.toFixed(2)]])}</div>`;
+  }
+  if (sec === 'gr') {
+    const gs = Object.keys(R.gr).sort(), g = gs.includes(ui.rground) ? ui.rground : gs[0];
+    const G = g ? R.gr[g] : null;
+    body = gs.length ? `<div class="card"><div class="row"><h3>Ground records</h3><select id="rGround">${gs.map(x => `<option ${x === g ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></div>
+      <table><tr><th>Record</th><th>Holder</th><th class="n"></th><th>Match</th><th>Season</th></tr>
+      ${[['Highest score', G.hs, 0], ['Best bowling', G.bb, 0], ['Highest total', G.hi, 1]].filter(x => x[1]).map(([l, e, team]) => `<tr><td>${l}</td><td>${team ? esc(e.n) : who(e.n)}</td><td class="n"><b>${esc(e.t)}</b></td><td>${esc(e.tm)} v ${esc(e.op)}</td><td class="sm">${seasonTxt(e.y)}</td></tr>`).join('')}</table></div>` : '<div class="card"><p class="mute sm">No matches yet.</p></div>';
+  }
+  if (sec === 'mile') {
+    const ms = (C.mile || []).filter(x => x.comp === cp).slice(0, 80);
+    body = `<div class="card scroll"><h3>Milestones</h3>${ms.length ? `<table><tr><th>Date</th><th>Player</th><th>Team</th><th>Milestone</th></tr>${ms.map(x => `<tr class="${x.nat === 'AUS' ? 'us' : ''}"><td class="sm">${esc(CR.fmtDate ? CR.fmtDate(x.d) : x.d)}</td><td>${who(x.n)}</td><td>${esc(x.nat)}</td><td>${esc(x.t)}</td></tr>`).join('')}</table>` : '<p class="mute sm">None yet. Big career landmarks (100 Tests, 10,000 runs, 500 wickets and so on) appear here, counting real careers before 2026.</p>'}</div>`;
+  }
+  return `<div class="wrap"><div class="top"><div><h2>Records book</h2><p class="mute sm" style="margin:4px 0 0">Every match in this save${intl ? ', with the real all-time record shown for comparison' : ''}.</p></div>
+    <div class="tabs" style="margin:0">${REC_COMP_NAMES.map(([k, l]) => `<button data-rcomp="${k}" class="${k === cp ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+    <div class="tabs">${secs.map(([k, l]) => `<button data-rsec="${k}" class="${k === sec ? 'on' : ''}">${l}</button>`).join('')}</div>${body}</div>`;
+}
+
+// ---------- Hall of Fame ----------
+const roleWord = r => ({ BAT: 'Batter', BOWL: 'Bowler', AR: 'All-rounder', WK: 'Wicketkeeper' }[r] || '');
+const lineTxt = (L, k) => { const x = L && L[k]; if (!x || !x.m) return '<span class="mute">-</span>'; const bat = x.runs >= 500 || !x.wk ? `${x.runs.toLocaleString('en-AU')} @ ${x.avg ? x.avg.toFixed(1) : '-'}` : ''; const bowl = x.wk >= 20 ? `${x.wk} wkts @ ${x.bavg.toFixed(1)}` : ''; return `<span class="sm">${x.m} m · ${[bat, bowl].filter(Boolean).join(' · ')}</span>`; };
+function vHof(tabsHtml) {
+  if (typeof hofSeed === 'function') hofSeed(C);
+  const f = ui.hf || 'save', all = (C.hof || []).slice();
+  const list = all.filter(h => f === 'all' || (f === 'aus' ? h.nat === 'AUS' : !h.f))
+    .sort((a, b) => (b.y || 0) - (a.y || 0) || ((b.lines.test || {}).runs || 0) + ((b.lines.test || {}).wk || 0) * 25 - ((a.lines.test || {}).runs || 0) - ((a.lines.test || {}).wk || 0) * 25);
+  const onTrack = hofOnTrack(C).sort((a, b) => (b.nat === 'AUS') - (a.nat === 'AUS')).slice(0, 12);
+  const next = (C.hofQ || []).map(q => ({ q, why: hofWhy(C, q.n, hofLines(C, q.n)) })).filter(x => x.why.length);
+  return `<div class="wrap"><div class="top"><div><h2>Hall of Fame</h2><p class="mute sm" style="margin:4px 0 0">Players are considered one full season after they retire. Careers count everything before 2026 as well as this save.</p></div>${tabsHtml}</div>
+  <div class="tabs">${[['save', 'Inducted in your career'], ['aus', 'Australians'], ['all', 'Everyone']].map(([k, l]) => `<button data-hf="${k}" class="${k === f ? 'on' : ''}">${l}</button>`).join('')}</div>
+  <div class="card scroll">${list.length ? `<table><tr><th>Class</th><th>Player</th><th>Team</th><th>Role</th><th>Tests</th><th>ODIs</th><th>T20Is</th><th>Why</th></tr>
+    ${list.map(h => `<tr class="${h.nat === 'AUS' ? 'us' : ''}"><td class="sm">${h.f ? 'Founding' : h.y}</td><td><a class="pl" data-hof="${esc(h.n)}">${esc(h.n)}</a></td><td>${esc(h.nat)}</td><td class="sm">${roleWord(h.role)}</td><td>${lineTxt(h.lines, 'test')}</td><td>${lineTxt(h.lines, 'odi')}</td><td>${lineTxt(h.lines, 't20i')}</td><td class="sm mute">${esc((h.why || []).join(', ') || 'All-time great')}</td></tr>`).join('')}</table>` : '<p class="mute sm">Nobody has been inducted in your career yet. The first class is chosen at the end of a season, from players who retired the season before.</p>'}</div>
+  ${next.length ? `<div class="card"><h3>Up for induction at the end of this season</h3><p class="sm">${next.map(x => `${esc(x.q.n)} (${esc(x.q.nat)})`).join(', ')}</p></div>` : ''}
+  ${onTrack.length ? `<div class="card"><h3>Already Hall of Fame standard</h3><div class="mute sm" style="margin-bottom:6px">Active players who would be inducted if they retired today.</div><p class="sm">${onTrack.map(x => `${pl(x.n)} <span class="mute">(${esc(x.nat)}, ${esc(x.why[0])})</span>`).join(', ')}</p></div>` : ''}</div>`;
+}
+function hofModal(name) {
+  const h = (C.hof || []).find(x => x.n === name);
+  if (!h) return `<div class="modal-bg"><div class="modal"><p>${esc(name)} is not in the Hall of Fame.</p><button id="mClose">Close</button></div></div>`;
+  const L = h.f ? h.lines : Object.assign({}, h.lines, hofLines(C, name));
+  const fmts = [['test', 'Tests'], ['odi', 'ODIs'], ['t20i', 'T20Is'], ['shield', 'Sheffield Shield'], ['odc', 'One-Day Cup'], ['bbl', 'BBL']].filter(([k]) => L[k] && L[k].m);
+  const hon = {}; (h.hon || []).forEach(([a, y]) => { (hon[a] = hon[a] || []).push(y); });
+  const preNote = !h.f && ['test', 'odi', 't20i'].some(k => L[k] && L[k].pre) ? `<p class="mute sm">Includes his real career before 2026: ${['test', 'odi', 't20i'].filter(k => L[k] && L[k].pre).map(k => `${L[k].pre.m} ${k === 'test' ? 'Tests' : k === 'odi' ? 'ODIs' : 'T20Is'}`).join(', ')}.</p>` : '';
+  return `<div class="modal-bg"><div class="modal xl"><div class="top"><div><h2>${esc(h.n)}</h2>
+    <div class="mute">${tName(h.nat)} · ${roleWord(h.role)} · ${h.f ? 'Founding member of the Hall of Fame' : `Inducted ${h.y}${h.ry ? `, retired ${seasonTxt(h.ry)}` : ''}`}</div>
+    ${h.why && h.why.length ? `<div style="margin-top:6px" class="sm">${esc(h.why.join(', '))}.</div>` : ''}</div>
+    ${h.peak ? `<div class="right"><div class="mute sm">Peak rating</div>${badge(h.peak)}${h.peakWB && h.peakWB > h.peak ? ' ' + badge(h.peakWB) + ' <span class="mute sm">white ball</span>' : ''}</div>` : ''}</div>
+    <div class="card scroll" style="margin-top:12px"><h3>Career</h3><table><tr><th>Format</th><th class="n">M</th><th class="n">Runs</th><th class="n">Avg</th><th class="n">100s</th><th class="n">Wkts</th><th class="n">Bowl avg</th></tr>
+      ${fmts.map(([k, l]) => { const x = L[k]; return `<tr><td>${l}</td><td class="n">${x.m}</td><td class="n">${Math.round(x.runs).toLocaleString('en-AU')}</td><td class="n">${x.avg ? x.avg.toFixed(2) : '-'}</td><td class="n">${x.h100}</td><td class="n">${x.wk}</td><td class="n">${x.wk ? x.bavg.toFixed(2) : '-'}</td></tr>`; }).join('')}</table>${preNote}</div>
+    ${Object.keys(hon).length ? `<div class="card"><h3>Honours in your career</h3>${Object.entries(hon).map(([a, ys]) => `<div class="sm">${esc(a)}${ys.length > 1 ? ` x${ys.length}` : ''} <span class="mute">(${ys.join(', ')})</span></div>`).join('')}</div>` : ''}
+    <div class="btns"><button id="mClose">Close</button></div></div></div>`;
+}
+function bind58() {
+  const on = (sel, ev, fn) => document.querySelectorAll(sel).forEach(el => el[ev] = fn);
+  on('[data-rcomp]', 'onclick', e => { ui.rcomp = e.currentTarget.dataset.rcomp; render(); });
+  on('[data-rsec]', 'onclick', e => { ui.rsec = e.currentTarget.dataset.rsec; render(); });
+  on('#rGround', 'onchange', e => { ui.rground = e.target.value; render(); });
+  on('[data-hf]', 'onclick', e => { ui.hf = e.currentTarget.dataset.hf; render(); });
+  on('[data-hof]', 'onclick', e => { e.stopPropagation(); const n = e.currentTarget.dataset.hof; openModal(() => hofModal(n)); });
+}
+</script>
+
 
 </body>
 </html>
