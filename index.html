@@ -200,7 +200,7 @@ const AUS_PLAYERS = [
   Q('Steve Smith', 37, 'BAT', 90, 60, -2, 'LB 44', null, { st: 'NSW', peak: 95, on: 94, off: 86, field: 90, form: -1 }),
   Q('Pat Cummins', 33, 'BOWL', 54, 68, 0, 'RF 92', null, { st: 'NSW', peak: 93, acc: -2, stam: 82, seam: 93, swing: 86, form: -2, prone: 1.3 }),
   Q('Mitchell Starc', 36, 'BOWL', 52, 82, 0, 'LF 91', null, { st: 'NSW', peak: 91, h: 'L', acc: -7, stam: 78, swing: 94, seam: 84, form: 4 }),
-  Q('Josh Hazlewood', 35, 'BOWL', 34, 40, 0, 'RFM 89', null, { st: 'NSW', peak: 91, h: 'L', acc: 4, stam: 72, seam: 93, swing: 82, prone: 1.4 }),
+  Q('Josh Hazlewood', 35, 'BOWL', 34, 40, 0, 'RFM 89', null, { st: 'NSW', peak: 91, h: 'L', acc: 4, stam: 72, seam: 93, swing: 82, prone: 1.25 }),
   Q('Nathan Lyon', 39, 'BOWL', 45, 50, 0, 'OB 86', null, { st: 'NSW', peak: 90, stam: 94, turn: 85, flight: 90 }),
   Q('Sam Konstas', 21, 'BAT', 71, 90, 1, null, 90, { st: 'NSW', off: 74, on: 72 }),
   Q('Nic Maddinson', 34, 'BAT', 72, 75, 0, null, null, { st: 'NSW', h: 'L' }),
@@ -1481,7 +1481,7 @@ function endOverCheck(m) {
   const hot = wxNow(m) === 'Sunny' || wxNow(m) === 'Humid' ? 1.15 : 1;
   bowler.energy = clamp(bowler.energy - (pace ? 3 + (100 - bt.stam) * 0.06 : 0.6 + (100 - bt.stam) * 0.03) * (pace ? hot : 1 + (hot - 1) * 0.5), 0, 100);
   bw.players.forEach(p => { if (p !== bowler && p.idx !== m.endBowler[1 - m.end]) p.energy = clamp(p.energy + 2, 0, 100); });
-  if (pace && rnd() < 0.0011 * (1 + Math.max(0, 70 - bowler.energy) / 25) * (bowler.prone || 1)) hurt(m, bowler, inn.bowl, pick(['a hamstring strain', 'a side strain', 'back soreness', 'an ankle injury', 'a calf strain']));
+  if (pace && rnd() < 0.0006 * (1 + Math.max(0, 70 - bowler.energy) / 25) * (bowler.prone || 1)) hurt(m, bowler, inn.bowl, pick(['a hamstring strain', 'a side strain', 'back soreness', 'an ankle injury', 'a calf strain']));
   m.lastOver = { bowler: bowler.name, log: m.overLog.slice() };
   m.overBalls = 0; m.overRuns = 0; m.overLog = [];
   swapStrike(m);
@@ -2063,7 +2063,7 @@ function loCheck(m) {
   bowler.spell++; if (inn.so) bowler.soUsed = true;
   bw.players.forEach(p => { if (p !== bowler) { if (p.idx === m.endBowler[1 - m.end]) return; p.rest = (p.rest || 0) + 1; if (p.rest >= 3) p.spell = 0; } });
   bowler.rest = 0;
-  if (bowler.bowl && isPace(bowler.bowl.type) && rnd() < 0.0006 * (bowler.prone || 1)) hurt(m, bowler, inn.bowl, pick(['a hamstring strain', 'a side strain', 'an ankle injury']));
+  if (bowler.bowl && isPace(bowler.bowl.type) && rnd() < 0.0005 * (bowler.prone || 1)) hurt(m, bowler, inn.bowl, pick(['a hamstring strain', 'a side strain', 'an ankle injury']));
   m.lastOver = { bowler: bowler.name, log: m.overLog.slice() };
   m.prevSameEnd = m.endBowler[1 - m.end];
   m.lastBowler = bowler.idx;
@@ -2339,6 +2339,7 @@ function recordMatch(c, m, comp, opt) {
   const perf = new Map();
   m.teams.forEach((t, ti) => t.players.forEach(p => { sts(p.name).forEach(s => s.m++); perf.set(p.name, { runs: 0, bf: 0, batted: false, wk: 0, balls: 0, br: 0, ti, p }); }));
   const cl = COMP_NAME[comp] || comp;
+  const RL = {}, rlx = n => RL[n] || (RL[n] = { b: [], w: [] }); // 5.10: per-match recent form log for Australians (all competitions)
   m.innings.forEach(inn => {
     if (inn.so) return;
     const bt = m.teams[inn.bat], bw = m.teams[inn.bowl];
@@ -2352,6 +2353,7 @@ function recordMatch(c, m, comp, opt) {
         if (card.runs === 0 && !no) s.ducks++;
       });
       const s = statsOf(c, name, comp); s.recentBat.push(card.runs + (no ? '*' : '')); if (s.recentBat.length > 8) s.recentBat.shift();
+      rlx(name).b.push(card.runs + (no ? '*' : ''));
       const pf = perf.get(name); pf.runs += card.runs; pf.bf += card.balls; pf.batted = true;
       if (tests && c.prank) prankBat(c, name, card.runs, no, m.teams[inn.bowl]);
       if (intlLO && c.prankWB) prankLOBat(c, fmt, name, card.runs, card.balls, no);
@@ -2370,6 +2372,7 @@ function recordMatch(c, m, comp, opt) {
         if (f.wkts >= 4) s.fourW = (s.fourW || 0) + 1;
       });
       const s = statsOf(c, name, comp); s.recentBowl.push(`${f.wkts}/${f.runs}`); if (s.recentBowl.length > 8) s.recentBowl.shift(); s.bInn = (s.bInn || 0) + 1;
+      if (f.legal) rlx(name).w.push(`${f.wkts}/${f.runs}`);
       const pf = perf.get(name); pf.wk += f.wkts; pf.balls += f.legal; pf.br += f.runs;
       if (tests && c.prank && f.legal >= 36) prankBowl(c, name, f.wkts, f.runs, f.legal, bt);
       if (intlLO && c.prankWB && f.legal >= 12) prankLOBowl(c, fmt, name, f.wkts, f.runs, f.legal);
@@ -2384,6 +2387,7 @@ function recordMatch(c, m, comp, opt) {
     const f = m.fstats[ti][i], name = t.players[i].name;
     sts(name).forEach(s => { s.ct += f.ct; s.st += f.st; s.ro += f.ro; });
   }));
+  Object.keys(RL).forEach(n => { const P = P_(c, n); if (!P || P.nat !== 'AUS') return; const L = (c.rl || (c.rl = {}))[n] || (c.rl[n] = []); L.push([comp, RL[n].b.join(' & '), RL[n].w.join(' & ')]); if (L.length > 6) L.shift(); });
   perf.forEach(pf => { if (pf.wk >= 10) statsOf(c, pf.p.name, comp).tenW++; });
   if (typeof recHook === 'function') { try { recHook(c, m, comp); } catch (e) { console.warn(e); } }
   // development and form for the real (persistent) player objects
@@ -2410,11 +2414,14 @@ function recordMatch(c, m, comp, opt) {
   });
   if (lo) { if (intlLO && c.trankWB) loTeamResult(c, m, fmt); bump(c); return; }
   // fatigue carried to the next match of a series: it builds up over back-to-back Tests and recovers a few points per rest day
+  // 5.10: anyone carrying fatigue who sat this Test out recovers over its five days too (before, a rested quick stayed as tired as he was)
+  if (tests) { const inM = new Set(); m.teams.forEach(t => t.players.forEach(p => inM.add(p.name)));
+    Object.keys(c.energy).forEach(n => { if (inM.has(n)) return; const P = P_(c, n), pc = P && P.bowl && isPace(P.bowl.type); c.energy[n] = clamp(recoverE(c.energy[n], 5, pc), 45, 100); }); }
   m.teams.forEach((t, ti) => t.players.forEach(p => {
     let balls = 0, faced = 0;
     m.innings.forEach(inn => { if (m.teams[inn.bowl] === t && inn.bowling[p.idx]) balls += inn.bowling[p.idx].legal; if (inn.bat === ti && inn.cards[p.idx]) faced += inn.cards[p.idx].balls || 0; });
     const pace = p.bowl && isPace(p.bowl.type), ov = balls / 6;
-    const drain = (pace ? ov * 0.62 : ov * 0.22) + faced / 90 + 2;
+    const drain = (pace ? ov * 0.5 : ov * 0.2) + faced / 90 + 2;
     c.energy[p.name] = clamp((p.e0 != null ? p.e0 : 100) - drain, 45, 100);
   }));
   if (tests) testResult(c, m, opt);
@@ -2552,7 +2559,8 @@ function playShieldMatch(c, home, away, unavailable, final, user) {
     const pool = statePool(c, s).filter(p => !p.wbOnly && !(unavailable && unavailable.has(p.name)) && !(typeof wlRest === 'function' && wlRest(p)));
     return autoXI(pool, venue, null, true).map(n => P_(c, n));
   };
-  const m = createMatch({ home, away, venue, venueKey, xi: { [home]: pickXI(home), [away]: pickXI(away) }, userTeam: user || 'none', TEAMS: STATE_TEAMS(),
+  const ov = s => (typeof ovXI === 'function' && ovXI(c, s)) || pickXI(s);
+  const m = createMatch({ home, away, venue, venueKey, xi: { [home]: ov(home), [away]: ov(away) }, userTeam: user || 'none', TEAMS: STATE_TEAMS(),
     labels: { [home]: STATES[home].name, [away]: STATES[away].name }, days: final ? 5 : 4, overs: 96, quiet: !user, comp: 'shield' });
   if (user) return m;
   simQuick(m);
@@ -2631,6 +2639,7 @@ function simSeries(c, home, away, n) {
   }
   c.energy = {};
   const hw = res.w[home], aw = res.w[away];
+  if (typeof serLog === 'function') serLog(c, 'test', home, away, hw, aw, n, home);
   res.text = hw > aw ? `${TEAMS[home].name} beat ${TEAMS[away].name} ${hw}-${aw}` : aw > hw ? `${TEAMS[away].name} won ${aw}-${hw} in ${TEAMS[home].name}` : `${TEAMS[home].name} v ${TEAMS[away].name} drawn ${hw}-${aw}`;
   return res;
 }
@@ -2666,7 +2675,7 @@ function randomInjuries(c, weeks) {
   NATIONS.forEach(code => c.players[code].forEach(p => {
     if (p.injury || p.retired || (c.cm && c.cm.noInj && code === 'AUS')) return;
     const pace = p.bowl && isPace(p.bowl.type);
-    if (Math.random() < weeks * 0.0018 * (pace ? 1.6 : 0.8) * (p.prone || 1)) {
+    if (Math.random() < weeks * 0.0018 * (pace ? 1.25 : 0.8) * (p.prone || 1)) {
       const what = pick(pace ? ['back stress', 'side strain', 'hamstring strain', 'ankle injury'] : ['hamstring strain', 'broken finger', 'calf strain']);
       p.injury = { what, weeks: what.includes('back') ? rint(6, 16) : rint(2, 7) };
       if (p.nat === 'AUS' && overall(p) >= 72) news(c, `Injury: ${p.name} has a ${what}, out for about ${Math.round(p.injury.weeks)} weeks.`, 'bad');
@@ -2940,6 +2949,8 @@ const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct
 function fmtDate(s) { const d = typeof s === 'string' ? new Date(s + 'T00:00:00Z') : s; return `${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${d.getUTCFullYear()}`; }
 function fmtRange(d) { const e = addDays(d, 4); return d.getUTCMonth() === e.getUTCMonth() ? `${d.getUTCDate()}-${e.getUTCDate()} ${MON[d.getUTCMonth()]} ${d.getUTCFullYear()}` : `${d.getUTCDate()} ${MON[d.getUTCMonth()]} - ${e.getUTCDate()} ${MON[e.getUTCMonth()]} ${e.getUTCFullYear()}`; }
 function testDate(w, i) { const off = w.id === 'sum' ? [0, 8, 17, 26, 35][i] : i * 9; return addDays(windowStart(w), off); }
+// 5.10: rest days win back a share of the fatigue each day (quicks 28% of what's left, everyone else 40%), so 3 to 4 days between Tests gets a quick back to the high 80s and a week off gets him close to fresh
+function recoverE(e, days, pace) { return 100 - (100 - e) * Math.pow(pace ? 0.72 : 0.6, Math.max(0, days)); }
 function restDays(w, i) { return i <= 0 ? 30 : Math.max(0, (testDate(w, i) - testDate(w, i - 1)) / 86400000 - 5); }
 
 function defaultLead(p) { if (typeof LEAD !== 'undefined' && LEAD[p.name]) return LEAD[p.name]; return Math.round(clamp(40 + hashN(p.name + 'L') * 15 + Math.max(0, p.age - 24) * 1.3, 30, 80)); }
@@ -2997,6 +3008,7 @@ function onSquadNamed(c, f) {
   const sqO = f.squad.map(n => P_(c, n)).filter(Boolean).map(p => overall(p)).sort((a, b) => a - b);
   const bar = Math.max(78, (sqO[Math.min(3, sqO.length - 1)] || 80) - 2);
   const seen = new Set(); f.pressure = calls.filter(([n]) => overall(P_(c, n)) >= bar && !seen.has(n) && seen.add(n)).slice(0, 2);
+  if (typeof pressureDrop === 'function') f.pressure = f.pressure.map(([n, why]) => { const d = pressureDrop(c, n, f.squad); return d ? [n, why, d.n, d.why] : [n, why]; });
   f.pressure.forEach(([n, why]) => { moraleAdd(P_(c, n), -2); news(c, `Media: calls grow for ${n} (${why}) after he was left out of the squad.`); });
   if (f.pressure.length) board(c, -0.5 * f.pressure.length, `Left out in-form contenders (${f.pressure.map(x => x[0]).join(', ')})`);
   f.squad.forEach(n => { const p = P_(c, n); if (p && (p.form || 0) <= -6) { news(c, `Media: questions over ${n}'s place after a run of poor scores.`); board(c, -1, `Picked out-of-form ${n}`); } });
@@ -3023,6 +3035,7 @@ function seriesFinished(c, f) {
   if (f.final) d = us > them ? 15 : them > us ? -6 : 4;
   board(c, d, `${f.title || 'Series v ' + f.opp}: ${us}-${them}${f.exp ? ` (target: ${f.exp.text.toLowerCase()})` : ''}`);
   if (us > them && !f.final && typeof addTrophy === 'function') addTrophy(c, f.title || `Test series v ${TEAMS[f.opp].name}`, `Won ${us}-${them}${f.home ? ' at home' : ' away'}`);
+  if (!f.final && typeof serLog === 'function') serLog(c, 'test', 'AUS', f.opp, us, them, f.tests, f.home ? 'AUS' : f.neutral ? '' : f.opp);
   if (!f.final && typeof awardSeries === 'function') awardSeries(c, f);
   (f.lastXI || []).forEach(n => { const p = P_(c, n); if (p) moraleAdd(p, us > them ? 4 : them > us ? -3 : 0); });
   const conf = c.board.conf;
@@ -3088,7 +3101,7 @@ function goatCheck(c) {
 
 const Career = { NATIONS, WTC_TEAMS, STATE_CODES, WINDOWS, seasonLabel, venuesOf, defaultVenues, mkFixture, newCareer, curWindow, findPlayer, P_, advanceWindow, activateWindow,
   autoSquad, autoXI, battingOrder, statsOf, shieldStat, recordMatch, playerOfMatch, isKeeper, frontline, available, wtcSorted, pct, shieldLadder, statePool, touringGrowth,
-  passWeeks, news, bump, matchSummary, finishWtcFinal, migrate, testDate, fmtDate, fmtRange, isoD, addDays, restDays, moraleAdd, moraleLabel, onSquadNamed, onXISelected, seriesFinished, goatLists, goatCheck, setCaptain, confirmContracts, expectationFor, defaultLead };
+  passWeeks, news, bump, matchSummary, finishWtcFinal, migrate, testDate, fmtDate, fmtRange, isoD, addDays, restDays, recoverE, moraleAdd, moraleLabel, onSquadNamed, onXISelected, seriesFinished, goatLists, goatCheck, setCaptain, confirmContracts, expectationFor, defaultLead };
 if (false) {
   const D = require('./data.js'); Object.assign(global, D);
   const E = require('./engine.js'); Object.assign(global, { isPace: E.isPace, overall: E.overall, overallRaw: E.overallRaw, potential: E.potential, batRating: E.batRating, bowlRating: E.bowlRating,
@@ -3357,6 +3370,7 @@ function simLOSeries(c, home, away, fmt, n) {
   const vs = venuesOfLO(home), res = { w: { [home]: 0, [away]: 0 }, nr: 0 };
   for (let i = 0; i < n; i++) { const m = simLOMatch(c, home, away, fmt, vs[(i + rint(0, 9)) % vs.length]); if (m.result.winner === -1) res.nr++; else res.w[m.teams[m.result.winner].code]++; }
   const hw = res.w[home], aw = res.w[away];
+  if (typeof serLog === 'function') serLog(c, fmt === 'odi' ? 'odi' : 't20i', home, away, hw, aw, n, home);
   res.text = `${FMT_NAME[fmt]}s: ` + (hw > aw ? `${TEAMS[home].name} beat ${TEAMS[away].name} ${hw}-${aw}` : aw > hw ? `${TEAMS[away].name} won ${aw}-${hw} in ${TEAMS[home].name}` : `${TEAMS[home].name} v ${TEAMS[away].name} shared ${hw}-${aw}`);
   return res;
 }
@@ -3430,7 +3444,7 @@ function domesticXI(c, pool, fmt, venue, unavail, overseas) {
 function playODC(c, home, away, unavail, final, user) {
   const vk = STATES[home].home, venue = VENUES[vk];
   const pool = s => statePool(c, s).filter(p => !bblOnly(p));
-  const m = createMatchLO({ fmt: 'odi', home, away, venue, venueKey: vk, xi: { [home]: domesticXI(c, pool(home), 'odi', venue, unavail), [away]: domesticXI(c, pool(away), 'odi', venue, unavail) }, userTeam: 'none',
+  const m = createMatchLO({ fmt: 'odi', home, away, venue, venueKey: vk, xi: { [home]: (typeof ovXI === 'function' && ovXI(c, home)) || domesticXI(c, pool(home), 'odi', venue, unavail), [away]: (typeof ovXI === 'function' && ovXI(c, away)) || domesticXI(c, pool(away), 'odi', venue, unavail) }, userTeam: 'none',
     TEAMS: loTeamsMap({ [home]: STATES[home].name, [away]: STATES[away].name }), quiet: !user, comp: 'odc', superOver: !!final, knockout: !!final, userTeam: user || 'none' });
   if (user) return m;
   simQuick(m);
@@ -3512,7 +3526,7 @@ function bblPool(c, k, unavail) {
 }
 function playBBL(c, home, away, unavail, venueKey, ko, user) {
   const vk = venueKey || BBL_CLUBS[home].home, venue = VENUES[vk];
-  const m = createMatchLO({ fmt: 't20', home, away, venue, venueKey: vk, xi: { [home]: domesticXI(c, bblPool(c, home, unavail), 't20', venue, null, c.cm && c.cm.noOS ? 99 : 3), [away]: domesticXI(c, bblPool(c, away, unavail), 't20', venue, null, c.cm && c.cm.noOS ? 99 : 3) },
+  const m = createMatchLO({ fmt: 't20', home, away, venue, venueKey: vk, xi: { [home]: (typeof ovXI === 'function' && ovXI(c, home)) || domesticXI(c, bblPool(c, home, unavail), 't20', venue, null, c.cm && c.cm.noOS ? 99 : 3), [away]: (typeof ovXI === 'function' && ovXI(c, away)) || domesticXI(c, bblPool(c, away, unavail), 't20', venue, null, c.cm && c.cm.noOS ? 99 : 3) },
     userTeam: user || 'none', TEAMS: loTeamsMap({ [home]: BBL_CLUBS[home].name, [away]: BBL_CLUBS[away].name }), quiet: !user, comp: 'bbl', superOver: true, knockout: !!ko });
   if (user) return m;
   simQuick(m);
@@ -3627,6 +3641,7 @@ function seriesFinishedWB(c, f) {
     d = ((res - exp) * 6 + (us - them)) * (f.fmt === 'odi' ? 0.55 : 0.45);
     board(c, d, `${f.title || FMT_NAME[f.fmt] + ' series v ' + f.opp}: ${us}-${them}${f.exp ? ` (target: ${f.exp.text.toLowerCase()})` : ''}`);
     if (us > them && typeof addTrophy === 'function') addTrophy(c, f.title || `${FMT_NAME[f.fmt]} series v ${TEAMS[f.opp].name}`, `Won ${us}-${them}`);
+    if (typeof serLog === 'function') serLog(c, f.fmt === 'odi' ? 'odi' : 't20i', 'AUS', f.opp, us, them, f.tests, f.home ? 'AUS' : f.neutral ? '' : f.opp);
     if (typeof awardSeries === 'function') awardSeries(c, f);
   }
   (f.lastXI || []).forEach(n => { const p = P_(c, n); if (p) moraleAdd(p, us > them ? 2 : them > us ? -1.5 : 0); });
@@ -3688,6 +3703,7 @@ function pruneSave(c) {
     if (intl < 20) { delete c.stats[n]; return; }
     Object.values(o).forEach(s => { delete s.recentBat; delete s.recentBowl; });
   });
+  if (c.rl) Object.keys(c.rl).forEach(n => { if (!live.has(n)) delete c.rl[n]; });
   [c.prank].concat(c.prankWB ? [c.prankWB.odi, c.prankWB.t20] : []).forEach(T => { if (T) Object.keys(T).forEach(n => { if (!live.has(n)) delete T[n]; }); });
   if (c.news && c.news.length > 120) c.news.length = 120;
   if (c.intl && c.intl.length > 60) c.intl.length = 60;
@@ -4567,14 +4583,14 @@ function domTick(c) {
 }
 // ================= NATIONALITY CHANGES (5.7) =================
 // You can approach overseas players to move to Australia. Not everyone wants to: it depends on their chances at home,
-// age, family ties and how strong their own nation is. Movers qualify for Australia after three years' residency.
+// age, family ties and how strong their own nation is. Movers qualify for Australia after one season's residency (5.10; was three).
 function moveNation(c, p, nat, immediate) {
   const old = p.nat; if (old === nat) return;
   const L = c.players[old]; L.splice(L.indexOf(p), 1);
   c.players[nat].push(p); p.nat = nat; delete p.dt;
   if (nat === 'AUS') p.state = p.state || pick(STATE_CODES); else delete p.state;
   if (old === 'AUS') { c.contracts = (c.contracts || []).filter(n => n !== p.name); }
-  if (immediate) { delete p.noIntl; delete p.qualY; } else { p.noIntl = true; p.qualY = curSeason(c) + 3; }
+  if (immediate) { delete p.noIntl; delete p.qualY; } else { p.noIntl = true; p.qualY = curSeason(c) + 1; }
   if (DOM[nat] && c.dom && c.dom[nat]) domFill(c, nat);
   bump(c);
 }
@@ -4638,7 +4654,8 @@ function bblClubTick(c) {
 // ================= SERIES LEADERS, PLAYER OF THE SERIES, AWARDS NIGHT (5.7) =================
 function seriesEntries(c, f) {
   const y = curSeason(c), title = f.title || '';
-  return (c.archive || []).filter(e => e.y === y && e.card && (title ? e.title === title : (e.teams.includes(f.opp) && e.teams.includes('AUS'))) && (f.wc ? true : e.aus));
+  const comp = f.fmt === 'odi' ? 'odi' : f.fmt === 't20' ? 't20i' : 'test';
+  return (c.archive || []).filter(e => e.y === y && e.card && (title ? e.title === title : (e.comp === comp && e.teams.includes(f.opp) && e.teams.includes('AUS'))) && (f.wc ? true : e.aus));
 }
 function leadersFrom(entries) {
   const P = {};
@@ -4661,7 +4678,7 @@ function awardSeries(c, f) {
   const pos = playerOfSeries(c, f); if (!pos) return;
   f.pos = pos;
   if (typeof addHon === 'function') addHon(c, pos.name, f.wc ? 'Player of the tournament' : 'Player of the series', curSeason(c));
-  (c.seriesAwards = c.seriesAwards || []).push({ y: curSeason(c), title: f.title || `${FMT_NAME ? (FMT_NAME[f.fmt] || 'Test') : 'Test'} series v ${TEAMS[f.opp] ? TEAMS[f.opp].name : f.opp}`, name: pos.name, text: pos.text });
+  (c.seriesAwards = c.seriesAwards || []).push({ y: curSeason(c), title: f.title || `${FMT_NAME ? (FMT_NAME[f.fmt] || 'Test') : 'Test'} series v ${TEAMS[f.opp] ? TEAMS[f.opp].name : f.opp}`, comp: f.fmt === 'odi' ? 'odi' : f.fmt === 't20' ? 't20i' : 'test', opp: f.opp, raw: f.title || '', name: pos.name, text: pos.text });
   news(c, `${f.wc ? 'Player of the tournament' : 'Player of the series'}${f.title ? ` (${f.title})` : ''}: ${pos.name}, ${pos.text}.`, 'good');
 }
 // awards night: Cricket Australia's awards, voted 3-2-1 match by match like the real Allan Border Medal
@@ -4956,6 +4973,7 @@ function restoreLost(c) {
   if (back.length) { bump(c); news(c, `Restored to the game after a bug removed them: ${back.join(', ')}. Their ratings are back to their 2026 levels; their stats from before the bug could not be recovered.`, 'big'); }
 }
 function migrate58(c) {
+  if (typeof migrate510 === 'function') { try { migrate510(c); } catch (e) { console.warn(e); } }
   try { restoreLost(c); } catch (e) { console.warn(e); }
   hofSeed(c);
   if (!c.hon) {
@@ -5008,8 +5026,10 @@ const injTag = p => p.injury ? `<span class="inj" title="${esc(p.injury.what)}">
 const avgS = s => s.inn - s.no > 0 ? (s.runs / (s.inn - s.no)).toFixed(2) : (s.inn ? '-' : '-');
 
 // Saves are compressed (lz-string), about 7 times smaller than raw JSON. Old uncompressed saves still load.
-const GAME_VERSION = '5.9', SAVE_VERSION = 6;
+const GAME_VERSION = '5.10.1', SAVE_VERSION = 6;
 const CHANGELOG = [
+  ['5.10.1', ['Results now has a Trophy tally and dynasties tab: every nation\'s World Cups, WTC titles, series wins and U19 titles, a dynasty rating (recent titles count most, big wins away and against strong sides count extra, defeats pull you down) and each side\'s best era. Tick a box to add real World Cups, WTC and BBL titles from before your career.', 'Domestic tallies too: Sheffield Shield, One-Day Cup and BBL titles with dynasty ratings and winning streaks, plus the most successful sides in each overseas first-class competition.']],
+  ['5.10', ['Shortlist (talent watch): tap the ☆ next to any player or use Add to shortlist on his profile. Filter to your shortlist in the Players tab and in squad selection, and follow them on the Pathway.', 'Pathway redesigned: an overview with rising stars, players knocking on the door and quick links to the academy, U19s, A tours, workloads and recruits.', 'Pick your own XI for any Shield, One-Day Cup or BBL match you coach (or let the AI pick).', 'Media pressure now says who to bring in and who to drop, like for like (quick for quick, batter for batter), with a one-click swap.', 'Newspaper headlines after every international, and they are not kind when Australia play badly.', 'Series stats for every series in the Results tab, and player of the series now shows there for every series.', 'Recent form under each player now shows his latest matches across Tests and the Shield (or the white-ball equivalents), newest first.', 'Fast bowlers recover properly between Tests, and a bowler you rest for a Test comes back fresh.', 'Sorting a table is no longer lost when you open a player.', 'Squad selection shows the maximum squad size and how many batters, keepers, all-rounders and bowlers you have.', 'Overseas recruits now qualify for Australia after one season instead of three.', 'Fewer in-match breakdowns for fast bowlers.']],
   ['5.7', ['Fatigue now carries between Tests: heavy bowling workloads leave quicks below 100 for the next match, and tired players carry a higher injury risk (see Pathway, Fast-bowler workloads).', 'Media and board pressure only applies to genuine contenders, and it costs far less.', 'Player growth rebalanced: playing (especially Tests and Australia A) now always beats sitting on the bench.', 'Coach domestic matches using state abbreviations, with a Change team button.', 'Bowlers show their wickets per innings in selection, not their batting.', 'Your BBL club never plays without you: each match asks you to coach or simulate it, the matches show on the calendar in purple, and you get alerts when free agency and the draft open. You can also choose to have no club.', 'Recruit overseas players to Australia (Pathway, Overseas recruits): they qualify after three years.', 'Hidden editor: search any player and change nationality, state, BBL club, domestic team, contract, role and more, plus board confidence and reputation.', 'Player of the series and tournament, with live series leaders on the series screen.', 'Awards night and year in review at the end of every season (Allan Border Medal and more). Season stats reset each year; career stats are kept.']],
   ['5.6.1', ['Fixed bowlers showing NaN ratings after a franchise league or Australia A tour. Affected players are repaired automatically.', 'Press conferences no longer ask why an injured player was left out.']],
   ['5.6', ['Saving is about 4 times faster and saves are about a third smaller, so long careers stay smooth.', 'Several changes in quick succession are saved once, and anything unsaved is written when you switch away from the game.', 'A loading screen shows straight away, and fonts load faster (the website version now carries its own fonts).', 'Fixed a rare crash when a new player was given the same name as a retired one.']],
@@ -5089,6 +5109,7 @@ function render() {
   if (typeof bind52 === 'function') bind52();
   if (typeof bind58 === 'function') bind58();
   if (typeof bind59 === 'function') bind59();
+  if (typeof bind510 === 'function') bind510();
   if (typeof tableSortApply === 'function') tableSortApply();
 }
 function openModal(fn) { modalFn = fn; render(); }
@@ -5105,7 +5126,8 @@ function confirmRestore() { return true; }
 function whatsNew() {
   if (!C || C.seenVer === GAME_VERSION) return;
   const since = C.seenVer;
-  const items = CHANGELOG.filter(([v]) => !since || v > since);
+  const vn = v => String(v).split('.').map(Number), vgt = (a, b) => { const x = vn(a), y = vn(b); for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); } return false; };
+  const items = CHANGELOG.filter(([v]) => !since || vgt(v, since));
   C.seenVer = GAME_VERSION; save();
   if (!items.length) return;
   openModal(() => `<div class="modal-bg"><div class="modal wide"><h2>What's new</h2>${items.map(([v, l]) => `<h3>Version ${v}</h3><ul>${l.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`).join('')}<div class="btns"><button class="primary" id="mClose">Play</button></div></div></div>`);
@@ -5229,7 +5251,7 @@ const srS = s => s && s.balls ? (s.runs / s.balls * 100).toFixed(1) : '-';
 const ecS = s => s && s.bBalls ? (s.bRuns / s.bBalls * 6).toFixed(2) : '-';
 function vPlayers() {
   const code = ui.code || 'AUS', st = ui.st || 'ALL', q = (ui.q || '').toLowerCase(), role = ui.role || 'ALL', fm = ui.fmt || 'test';
-  const pool = code === 'ALL' ? CR.NATIONS.flatMap(n => C.players[n]) : C.players[code];
+  const pool = code === 'ALL' ? CR.NATIONS.flatMap(n => C.players[n]) : code === 'SL' ? (C.shortlist || []).map(n => CR.P_(C, n)).filter(Boolean) : C.players[code];
   let list = pool.filter(p => (code !== 'AUS' || st === 'ALL' || p.state === st) && (role === 'ALL' || p.role === role) && (!q || p.name.toLowerCase().includes(q)));
   const sk = ui.sk || 'ovr', comp = CR.FMT_COMP[fm];
   const keyF = { ovr: p => E.fmtOVR(p, fm), pot: p => E.fmtPOT(p, fm), age: p => -p.age, form: p => p.form || 0, runs: p => (st_(p.name, comp) || {}).runs || 0, wk: p => (st_(p.name, comp) || {}).wk || 0,
@@ -5240,15 +5262,15 @@ function vPlayers() {
   const dom = fm === 'test' ? 'Shield' : fm === 'odi' ? 'ODC' : 'BBL', domS = fm === 'test' ? C.shield.stats : fm === 'odi' ? C.odc.stats : C.bbl.stats;
   return `<div class="wrap"><div class="top"><h2>Players</h2><div class="filters">
     <div class="tabs" style="margin:0">${['test', 'odi', 't20'].map(f => `<button data-pfmt="${f}" class="${fm === f ? 'on' : ''}">${FN[f]}</button>`).join('')}</div>
-    <select id="natSel"><option value="ALL" ${code === 'ALL' ? 'selected' : ''}>All players</option>${CR.NATIONS.map(n => `<option value="${n}" ${n === code ? 'selected' : ''}>${tName(n)}</option>`).join('')}</select>
+    <select id="natSel"><option value="ALL" ${code === 'ALL' ? 'selected' : ''}>All players</option><option value="SL" ${code === 'SL' ? 'selected' : ''}>★ Shortlist (${(C.shortlist || []).length})</option>${CR.NATIONS.map(n => `<option value="${n}" ${n === code ? 'selected' : ''}>${tName(n)}</option>`).join('')}</select>
     ${code === 'AUS' ? `<select id="stSel"><option value="ALL">All states</option>${CR.STATE_CODES.map(s => `<option value="${s}" ${s === st ? 'selected' : ''}>${STATES[s].name}</option>`).join('')}</select>` : ''}
     <select id="roleSel">${['ALL', 'BAT', 'BOWL', 'AR', 'WK'].map(r => `<option value="${r}" ${r === role ? 'selected' : ''}>${r === 'ALL' ? 'All roles' : roleName[r]}</option>`).join('')}</select>
     <input id="pq" value="${esc(ui.q || '')}" placeholder="Search"></div></div>
   <p class="mute sm">Every player has separate Test, ODI and T20 ratings and potentials. White-ball ratings add power hitting, finishing, death bowling and variations to the core skills.</p>
-  <div class="card scroll"><table><tr><th>Player</th>${th('age', 'Age', 'n')}${code === 'ALL' ? '<th>Team</th>' : ''}${code === 'AUS' ? '<th>State</th>' : ''}<th>Role</th>${th('ovr', FN[fm] + ' OVR')}${th('pot', 'POT')}<th class="mute">Other formats</th>${th('form', 'Form')}<th>Style</th>
+  ${code === 'SL' && !(C.shortlist || []).length ? '<div class="card mute" style="margin-bottom:10px">Your shortlist is empty. Click the ☆ next to any player (or Shortlist on his profile) to keep an eye on him here and in selection.</div>' : ''}<div class="card scroll"><table><tr><th>Player</th>${th('age', 'Age', 'n')}${code === 'ALL' || code === 'SL' ? '<th>Team</th>' : ''}${code === 'AUS' ? '<th>State</th>' : ''}<th>Role</th>${th('ovr', FN[fm] + ' OVR')}${th('pot', 'POT')}<th class="mute">Other formats</th>${th('form', 'Form')}<th>Style</th>
     <th class="n">${FNP[fm]}</th>${th('runs', 'Runs', 'n')}<th class="n">Avg</th>${fm !== 'test' ? '<th class="n">SR</th>' : ''}${th('wk', 'Wkts', 'n')}${fm !== 'test' ? '<th class="n">Econ</th>' : ''}${code === 'AUS' || fm === 't20' ? th('sruns', dom + ' runs', 'n') + th('swk', dom + ' wkts', 'n') : ''}</tr>
   ${list.map(p => { const s = st_(p.name, comp), ss = domS[p.name], others = ['test', 'odi', 't20'].filter(f => f !== fm);
-    return `<tr><td>${pl(p.name)} ${injTag(p)}${p.regen ? ' <span class="tag">regen</span>' : ''}${p.wbOnly && fm === 'test' ? ' <span class="tag">white-ball only</span>' : ''}</td><td class="n">${p.age}</td>${code === 'ALL' ? `<td>${p.nat}</td>` : ''}${code === 'AUS' ? `<td>${p.state || ''}</td>` : ''}<td>${p.role}</td><td>${badge(E.fmtOVR(p, fm))}</td><td>${badge(E.fmtPOT(p, fm), 'pot')}</td>
+    return `<tr><td>${typeof slStar === 'function' ? slStar(p.name) : ''}${pl(p.name)} ${injTag(p)}${p.regen ? ' <span class="tag">regen</span>' : ''}${p.wbOnly && fm === 'test' ? ' <span class="tag">white-ball only</span>' : ''}</td><td class="n">${p.age}</td>${code === 'ALL' || code === 'SL' ? `<td>${p.nat}${p.nat === 'AUS' && p.state ? ' · ' + p.state : ''}</td>` : ''}${code === 'AUS' ? `<td>${p.state || ''}</td>` : ''}<td>${p.role}</td><td>${badge(E.fmtOVR(p, fm))}</td><td>${badge(E.fmtPOT(p, fm), 'pot')}</td>
     <td class="sm mute">${others.map(f => `${FN[f]} ${E.fmtOVR(p, f)}`).join(' · ')}</td><td>${formTag(p)}</td>
     <td class="sm mute">${[styleTag(p), p.bowl ? p.bowl.type : ''].filter(Boolean).join(' · ')}</td>
     <td class="n">${s ? s.m : 0}</td><td class="n">${s ? s.runs : '-'}</td><td class="n">${s ? avgS(s) : '-'}</td>${fm !== 'test' ? `<td class="n">${srS(s)}</td>` : ''}<td class="n">${s ? s.wk : '-'}</td>${fm !== 'test' ? `<td class="n">${ecS(s)}</td>` : ''}
@@ -5445,9 +5467,11 @@ function vSquadPick() {
   const eligible = C.players.AUS.filter(p => CR.intlOK(p, fm));
   const sel = ui.sel || (ui.sel = new Set(f.squad && f.squad.length ? f.squad : (lo ? CR.autoSquadLO(C.players.AUS, fm, 15) : CR.autoSquad(C.players.AUS, 15)).map(p => p.name)));
   const st = ui.st || 'ALL', role = ui.role || 'ALL', minO = +(ui.minO || 70);
-  const list = eligible.filter(p => sel.has(p.name) || ((st === 'ALL' || p.state === st) && (role === 'ALL' || p.role === role) && E.fmtOVR(p, fm) >= minO)).sort((a, b) => (sel.has(b.name) - sel.has(a.name)) || E.fmtOVR(b, fm) - E.fmtOVR(a, fm));
+  const SLs = new Set(C.shortlist || []);
+  const list = eligible.filter(p => sel.has(p.name) || (ui.slOnly ? SLs.has(p.name) : ((st === 'ALL' || p.state === st) && (role === 'ALL' || p.role === role) && E.fmtOVR(p, fm) >= minO))).sort((a, b) => (sel.has(b.name) - sel.has(a.name)) || E.fmtOVR(b, fm) - E.fmtOVR(a, fm));
   const chosen = C.players.AUS.filter(p => sel.has(p.name));
-  const keepers = chosen.filter(p => p.role === 'WK').length, pace = chosen.filter(p => p.bowl && E.isPace(p.bowl.type) && p.bowl.skill >= 64).length, spin = chosen.filter(p => p.bowl && !E.isPace(p.bowl.type) && p.bowl.skill >= 64).length;
+  const keepers = chosen.filter(p => p.role === 'WK').length, pace = chosen.filter(p => p.role === 'BOWL' && p.bowl && E.isPace(p.bowl.type)).length, spin = chosen.filter(p => p.role === 'BOWL' && p.bowl && !E.isPace(p.bowl.type)).length;
+  const nBat = chosen.filter(p => p.role === 'BAT').length, nAR = chosen.filter(p => p.role === 'AR').length, arP = chosen.filter(p => p.role === 'AR' && p.bowl && E.isPace(p.bowl.type)).length;
   const ok = sel.size >= mn && sel.size <= mx && keepers >= 1;
   const v0 = VENUES[f.venues[f.testIdx || 0]], DS = domStats(fm), dn = fm === 'test' ? 'Shield' : fm === 'odi' ? 'One-Day Cup' : 'BBL';
   const domCell = p => { const ss = DS[p.name]; if (!ss) return '<td class="n">-</td><td class="n">-</td>';
@@ -5455,15 +5479,18 @@ function vSquadPick() {
     return `<td class="n">${p.role === 'BOWL' ? '<span class="mute">-</span>' : ss.inn ? `${ss.runs} @ ${avgS(ss)}${lo ? ` <span class="mute">SR ${srS(ss)}</span>` : ''}` : '-'}</td><td class="n" data-sort="${ss.wk || 0}">${ss.wk ? `${ss.wk} wkts <span class="mute">${perInn}/inns</span>${lo ? ` <span class="mute">e ${ecS(ss)}</span>` : ''}` : '-'}</td>`; };
   return `<div class="wrap"><div class="top"><div><div class="mute sm"><span class="fb f-${fm}">${FN[fm]}</span> ${esc(f.title || '')}</div><h2>${f.status === 'active' ? 'Change squad' : 'Pick your squad'} · ${fixtureDesc(f)}</h2>
     <div class="mute">${f.wc ? `${f.wc ? 'World Cup squads are 15 players.' : ''}` : `Next ${matchWord(f)} at ${esc(v0.name)}: ${esc(fmtF(f) !== 'test' ? loDesc(v0, f.venues[f.testIdx], fmtF(f)) : v0.desc)}`}</div></div>
-    <div class="right"><div class="cond" style="font-size:28px">${sel.size} <span class="mute" style="font-size:16px">players</span></div>
-    <div class="sm ${keepers ? 'mute' : 'warnc'}">${keepers} keeper${keepers === 1 ? '' : 's'} · ${pace} quicks · ${spin} spinners</div></div></div>
+    <div class="right"><div class="cond" style="font-size:28px">${sel.size} <span class="mute" style="font-size:16px">of ${mn === mx ? mx : `${mn} to ${mx}`} players</span></div>
+    <div class="sm ${sel.size > mx ? 'warnc' : 'mute'}">Max squad size ${mx}${sel.size > mx ? ` (${sel.size - mx} too many)` : ''}</div>
+    <div class="sm mute">${nBat} batter${nBat === 1 ? '' : 's'} · <span class="${keepers ? '' : 'warnc'}">${keepers} keeper${keepers === 1 ? '' : 's'}</span> · ${nAR} all-rounder${nAR === 1 ? '' : 's'}${nAR ? ` (${arP} pace, ${nAR - arP} spin)` : ''} · ${pace + spin} bowler${pace + spin === 1 ? '' : 's'} (${pace} pace, ${spin} spin)</div></div></div>
+    ${typeof pressureBox === 'function' ? pressureBox(f, [...sel]) : ''}
     <div class="filters" style="margin-bottom:10px"><select id="sqSt"><option value="ALL">All states</option>${CR.STATE_CODES.map(s => `<option value="${s}" ${s === st ? 'selected' : ''}>${STATES[s].name}</option>`).join('')}</select>
       <select id="sqRole">${['ALL', 'BAT', 'BOWL', 'AR', 'WK'].map(r => `<option value="${r}" ${r === role ? 'selected' : ''}>${r === 'ALL' ? 'All roles' : roleName[r]}</option>`).join('')}</select>
       <select id="sqMin">${[60, 65, 70, 74].map(n => `<option value="${n}" ${n === minO ? 'selected' : ''}>${FN[fm]} OVR ${n}+</option>`).join('')}</select>
+      <label class="chk"><input type="checkbox" id="sqSL" ${ui.slOnly ? 'checked' : ''}> ★ Shortlist only (${SLs.size})</label>
       <span class="mute sm">${lo ? 'Ratings shown are for this format. Players who have retired from this format are not listed.' : f.home ? '' : 'Touring players who do not play still develop a little.'}</span></div>
     <div class="card scroll"><table><tr><th></th><th>Player</th><th class="n">Age</th><th>State</th><th>Role</th><th>${FN[fm]} OVR</th><th>POT</th><th class="mute">Other</th><th>Form</th><th>Morale</th><th>Type</th><th class="n">${dn} runs</th><th class="n">${dn} wkts</th><th>Recent</th></tr>
     ${list.map(p => { const dis = !!p.injury && !sel.has(p.name);
-      return `<tr class="pick ${sel.has(p.name) ? 'sel' : ''} ${dis ? 'dis' : ''}" ${dis ? '' : `data-tog="${esc(p.name)}"`}><td><input type="checkbox" ${sel.has(p.name) ? 'checked' : ''} ${dis ? 'disabled' : ''}></td><td>${pl(p.name)}${capTag(p.name, fm)} ${injTag(p)}</td><td class="n">${p.age}</td><td>${p.state || ''}</td><td>${p.role}</td>
+      return `<tr class="pick ${sel.has(p.name) ? 'sel' : ''} ${dis ? 'dis' : ''}" ${dis ? '' : `data-tog="${esc(p.name)}"`}><td><input type="checkbox" ${sel.has(p.name) ? 'checked' : ''} ${dis ? 'disabled' : ''}></td><td>${typeof slStar === 'function' ? slStar(p.name) : ''}${pl(p.name)}${capTag(p.name, fm)} ${injTag(p)}</td><td class="n">${p.age}</td><td>${p.state || ''}</td><td>${p.role}</td>
       <td>${badge(E.fmtOVR(p, fm))}</td><td>${badge(E.fmtPOT(p, fm), 'pot')}</td><td class="sm mute">${['test', 'odi', 't20'].filter(x => x !== fm).map(x => `${FN[x]} ${E.fmtOVR(p, x)}`).join(' · ')}</td><td>${formTag(p)}</td><td>${morTag(p)}</td><td class="sm mute">${[styleTag(p), p.bowl ? p.bowl.type : ''].filter(Boolean).join(' · ')}</td>
       ${domCell(p)}<td class="sm mute">${recentStr(p, fm)}</td></tr>`; }).join('')}</table></div>
     <div class="btns sticky"><button class="primary" id="confirmSquad" ${ok ? '' : 'disabled'}>Name squad</button><button id="autoSquad">Selectors' pick</button>${f.status === 'active' ? '<button data-go="series">Back</button>' : ''}
@@ -5490,7 +5517,7 @@ function vSeries() {
   const fm = fmtF(f), w = CR.curWindow(C);
   const opp = (f.oppSquad || []).map(n => CR.P_(C, n)).filter(Boolean);
   const nextOpp = f.wc ? CR.oppOf(f, f.testIdx) : f.opp;
-  return `<div class="wrap"><div class="top"><div><div class="mute sm"><span class="fb f-${fm}">${FN[fm]}</span> ${esc(f.title || '')}</div><h2>${fixtureDesc(f)}</h2><div class="status">${seriesLine(f)}</div>${f.exp ? `<div class="sm">Board target: <b>${esc(f.exp.text)}</b></div>` : ''}${f.pressure && f.pressure.length ? `<div class="warn sm">Media pressure: ${f.pressure.map(x => esc(x[0])).join(', ')}</div>` : ''}</div>
+  return `<div class="wrap"><div class="top"><div><div class="mute sm"><span class="fb f-${fm}">${FN[fm]}</span> ${esc(f.title || '')}</div><h2>${fixtureDesc(f)}</h2><div class="status">${seriesLine(f)}</div>${f.exp ? `<div class="sm">Board target: <b>${esc(f.exp.text)}</b></div>` : ''}${f.pressure && f.pressure.length ? (typeof pressureSeriesHTML === 'function' ? pressureSeriesHTML(f) : `<div class="warn sm">Media pressure: ${f.pressure.map(x => esc(x[0])).join(', ')}</div>`) : ''}</div>
     <div class="btns" style="margin:0">${f.status === 'done' ? '<button class="primary" id="finishSeries">Continue</button>' : C.match ? '<button class="primary" data-go="match">Resume match</button>' : `<button class="primary" id="toPre">${matchWord(f)} ${f.testIdx + 1}${f.wc ? ` v ${tName(nextOpp)}` : ''}: select XI</button><button id="editSquad">Change squad</button>`}</div></div>
     <div class="card"><h3>${f.wc ? 'Our matches' : FNP[fm]}</h3>${f.venues.map((v, i) => { const r = f.results[i];
       return `<div class="row"><span><b>${f.wc ? `${f.matches[i].stage} v ${tName(f.matches[i].opp)}` : `${matchWord(f)} ${i + 1}`}</b> · ${esc(VENUES[v].name)} <span class="mute sm">${fixDateStr(w, f, i)}</span>${r ? `<br><span class="mute sm">${esc(r.scores)}${r.potm ? ' · Player of the match: ' + esc(r.potm) : ''}</span>` : ''}</span>
@@ -5508,7 +5535,7 @@ function vSeries() {
 function forecastStrip(wx, days, curIdx) {
   return `<div class="fc">${Array.from({ length: days }, (_, d) => `<div class="fcd"><span class="mute sm">Day ${d + 1}</span><div>${[0, 1, 2].map(s => { const i = d * 3 + s; return `<span class="wx ${i === curIdx ? 'now' : ''}" title="${wx[i]}">${E.WX_ICON[wx[i]]}</span>`; }).join('')}</div></div>`).join('')}</div>`;
 }
-function rested(n) { const f = curFixture(), w = CR.curWindow(C), e = C.energy[n]; if (fmtF(f) !== 'test') return 100; if (e == null) return 100; const p = CR.P_(C, n), pace = p && p.bowl && E.isPace(p.bowl.type); return Math.round(Math.min(100, e + CR.restDays(w, f.testIdx) * (pace ? 3 : 4.5))); }
+function rested(n) { const f = curFixture(), w = CR.curWindow(C), e = C.energy[n]; if (fmtF(f) !== 'test') return 100; if (e == null) return 100; const p = CR.P_(C, n), pace = p && p.bowl && E.isPace(p.bowl.type); return Math.round(Math.min(100, CR.recoverE(e, CR.restDays(w, f.testIdx), pace))); }
 function restedEnergy() { const o = {}; Object.keys(C.energy).forEach(n => { o[n] = rested(n); }); return o; }
 function oppSquadNow(f) { const fm = fmtF(f); if (f.wc) return CR.autoSquadLO(C.players[CR.oppOf(f, f.testIdx)], fm, 15); return (f.oppSquad || []).map(n => CR.P_(C, n)).filter(Boolean); }
 function vPrematch() {
@@ -5541,6 +5568,7 @@ function vPrematch() {
   const oppXI = (lo ? CR.autoXILO(oppSquad, fm, v) : CR.autoXI(oppSquad, v, en)).map(n => CR.P_(C, n));
   if (!ui.wx) ui.wx = tmpForecast(v.home);
   const rowInfo = p => { const DS = domStats(fm), ss = DS[p.name], st = (C.stats[p.name] || {})[CR.FMT_COMP[fm]], dn = fm === 'test' ? 'Shield' : fm === 'odi' ? 'ODC' : 'BBL';
+    if (typeof recentLine === 'function') { const rl = recentLine(p, fm, 3); if (rl) return `<span class="mute sm">${p.bowl ? p.bowl.type + ' · ' : ''}${rl}</span>`; }
     const batL = st && st.recentBat.length ? `${FNP[fm]}: ` + st.recentBat.slice(-3).join(', ') : ss && ss.inn ? `${dn} ${ss.runs} @ ${avgS(ss)}${lo ? ' SR ' + srS(ss) : ''}` : '';
     const bowlL = st && st.recentBowl && st.recentBowl.length ? `${FNP[fm]} bowling: ` + st.recentBowl.slice(-3).join(', ') : ss && ss.bBalls ? `${dn} ${ss.wk} wkts, ${(ss.wk / Math.max(1, ss.bInn || Math.round(ss.m * (lo ? 1 : 1.7)))).toFixed(1)} per innings` : '';
     const info = p.role === 'BOWL' ? bowlL : p.role === 'AR' ? [batL, bowlL].filter(Boolean).join(' · ') : batL;
@@ -5798,6 +5826,7 @@ function afterMatch() {
   C.match = null;
   const label = f.wc ? `${f.title}, ${f.matches[f.testIdx - 1].stage.toLowerCase()} v ${tName(f.matches[f.testIdx - 1].opp)}` : `${matchWord(f)} ${f.testIdx}${f.title ? ' (' + f.title + ')' : ''}`;
   CR.news(C, `${label}: ${m.result.text}.`, m.result.winner === usIdx ? 'good' : m.result.winner === -1 ? '' : 'bad');
+  if (typeof mediaHeadlines === 'function') { try { mediaHeadlines(C, m, f, fm); } catch (e) { console.warn(e); } }
   if (f.wc) CR.wcAfterMatch(C, f, m);
   CR.windowProgress(C, w);
   if (f.testIdx >= f.tests || f.status === 'done') {
@@ -5847,7 +5876,7 @@ function vBoard() {
       <h3 style="margin-top:12px">Recent verdicts</h3>${C.board.log.slice(0, 10).map(l => `<div class="row sm"><span>${esc(l.why)}</span><span class="${l.v >= 0 ? 'win' : 'loss'}">${l.v >= 0 ? '+' : ''}${Math.round(l.v * 10) / 10}</span></div>`).join('') || '<div class="mute sm">Nothing yet.</div>'}</div>
     <div class="card"><h3>Captaincy</h3>
       <div class="form"><label>Captain<select id="capSel"><option value="">None</option>${capOpts(C.captain)}</select></label><label>Vice-captain<select id="viceSel"><option value="">None</option>${capOpts(C.vice)}</select></label></div>
-      <p class="mute sm">A strong leader lifts the whole side a little and makes sharper bowling changes. Weak leaders can let the job weigh on their own batting. Changing captain upsets the old one, and doing it mid-series worries the board.</p>
+      <p class="mute sm">Yes, leadership affects performance, but gently. Every player in the XI gets a bonus (or penalty) from the captain's leadership: 90 adds about half a rating point to everyone's batting and bowling, 70 is neutral and 50 takes half a point off. For scale, form swings a player by up to about 2 points and home advantage is 1. Better leaders also make sharper bowling changes, and a captain under 60 bats about a point worse because the job weighs on him. Changing captain upsets the old one, and doing it mid-series worries the board.</p>
       <button class="primary" id="capSave">Confirm Test leadership</button>
       <h3 style="margin-top:14px">White-ball captains</h3>
       ${['odi', 't20'].map(f => { const cc = C.captains[f] || []; const opts = cur => aus.filter(p => E.wbOverall(p, f) >= 72 && CR.intlOK(p, f)).sort((a, b) => leadFmt(b, f) - leadFmt(a, f)).map(p => `<option value="${esc(p.name)}" ${p.name === cur ? 'selected' : ''}>${esc(p.name)} (leadership ${Math.round(leadFmt(p, f))}, ${FN[f]} ${E.wbOverall(p, f)})</option>`).join('');
@@ -6111,6 +6140,12 @@ function vWorldDom() {
 // ---------- Results archive ----------
 const COMPL = { test: 'Test', odi: 'ODI', t20i: 'T20I', shield: 'Shield', odc: 'One-Day Cup', bbl: 'BBL' };
 const sumLine = (e, i) => { const x = e.sum[i]; return x ? `${x[2] < 10 ? x[2] + '/' : ''}${x[1]}` : '-'; };
+// 5.10: series awards are titled 'Test series v New Zealand' while untitled result groups are 'Australia v New Zealand', so match on competition and opponent too
+function posForGroup(g, y) {
+  const SA = (C.seriesAwards || []).filter(x => x.y === y), e0 = g.rows[0] || {}, teams = e0.teams || [];
+  const fm = { test: 'Test', odi: 'ODI', t20i: 'T20I' }[g.comp];
+  return SA.find(x => x.title === g.title) || (!e0.title && fm ? SA.find(x => (x.comp ? x.comp === g.comp && !x.raw && teams.includes(x.opp) : teams.some(t => t !== 'AUS' && TEAMS[t] && x.title === `${fm} series v ${TEAMS[t].name}`))) : null) || null;
+}
 function vResults() {
   const A = C.archive || [];
   const years = [...new Set(A.map(e => e.y))].sort((a, b) => b - a);
@@ -6118,7 +6153,7 @@ function vResults() {
   const list = A.map((e, i) => Object.assign({ i }, e)).filter(e => e.y === y && (flt === 'all' ? true : flt === 'aus' ? e.aus || e.user : e.comp === flt)).reverse();
   const groups = []; const gmap = {};
   list.forEach(e => { const k = e.comp + '|' + (e.title || e.teams.slice().sort().join('-')); if (!gmap[k]) { gmap[k] = { k, title: e.title || `${e.names[0]} v ${e.names[1]}`, comp: e.comp, rows: [] }; groups.push(gmap[k]); } gmap[k].rows.push(e); });
-  const tr = (C.trophies || []);
+  ui._rg = groups; const tr = (C.trophies || []);
   return `<div class="wrap"><div class="top"><h2>Results</h2><div class="filters">
     <select id="rySel">${(years.length ? years : [y]).map(v => `<option value="${v}" ${v === y ? 'selected' : ''}>${v}-${String(v + 1).slice(2)} season</option>`).join('')}</select>
     <select id="rfSel">${[['aus', 'Australia and my matches'], ['all', 'All matches'], ['test', 'Tests'], ['odi', 'ODIs'], ['t20i', 'T20Is'], ['shield', 'Sheffield Shield'], ['odc', 'One-Day Cup'], ['bbl', 'BBL']].map(([v, l]) => `<option value="${v}" ${v === flt ? 'selected' : ''}>${l}</option>`).join('')}</select></div></div>
@@ -6127,7 +6162,7 @@ function vResults() {
   <div class="card" style="margin-bottom:14px"><h3>Trophy cabinet</h3>${tr.length ? `<table><tr><th>Season</th><th>Trophy</th><th>Detail</th></tr>${tr.slice().reverse().map(t => `<tr><td>${t.y}-${String(t.y + 1).slice(2)}</td><td>${esc(t.name)}</td><td class="sm mute">${esc(t.detail)}</td></tr>`).join('')}</table>
     <div class="mute sm" style="margin-top:6px">${tr.length} trophies in total.</div>` : '<div class="mute">No trophies yet. Series wins, World Cups, the World Test Championship and your BBL club\'s titles will appear here.</div>'}</div>
   ${(C.reviews || []).length ? `<div class="card" style="margin-bottom:14px"><h3>Year in review</h3>${C.reviews.map((R, i) => `<button class="mini" data-review="${i}">${CR.seasonLabel(R.y)}</button>`).join(' ')}</div>` : ''}
-  ${groups.length ? groups.map(g => { const pos = (C.seriesAwards || []).find(x => x.y === y && x.title === g.title); return `<div class="card" style="margin-bottom:12px"><h3>${esc(g.title)} <span class="tag">${COMPL[g.comp] || g.comp}</span></h3>${pos ? `<div class="sm" style="margin-bottom:6px">Player of the ${/Cup/.test(g.title) ? 'tournament' : 'series'}: <b>${esc(pos.name)}</b> <span class="mute">(${esc(pos.text)})</span></div>` : ''}
+  ${groups.length ? groups.map((g, gi) => { const pos = posForGroup(g, y); return `<div class="card" style="margin-bottom:12px"><div class="row"><h3>${esc(g.title)} <span class="tag">${COMPL[g.comp] || g.comp}</span></h3>${g.rows.some(e => e.card) ? `<button class="mini" data-sstats="${gi}">${g.rows.length > 1 ? (g.comp === 'shield' || g.comp === 'odc' || g.comp === 'bbl' ? 'Stats' : 'Series stats') : 'Match stats'}</button>` : ''}</div>${pos ? `<div class="sm" style="margin-bottom:6px">Player of the ${/Cup/.test(g.title) ? 'tournament' : 'series'}: <b>${esc(pos.name)}</b> <span class="mute">(${esc(pos.text)})</span></div>` : ''}
     <table><tr><th>Date</th><th>Match</th><th>Venue</th><th>Scores</th><th>Result</th><th>Player of the match</th></tr>
     ${g.rows.slice().reverse().map(e => `<tr class="pick" data-arch="${e.i}"><td class="sm" data-sort="${e.d || ''}">${e.d ? CR.fmtDate(e.d) : ''}</td><td>${e.stage ? esc(e.stage) : e.n ? `${e.n} of ${e.of}` : ''}</td><td class="sm">${esc(e.venue)}</td>
       <td class="sm">${e.teams[0]} ${e.sum.filter(x => x[0] === 0).map((x, k) => sumLine(e, e.sum.indexOf(x))).join(' & ')}, ${e.teams[1]} ${e.sum.filter(x => x[0] === 1).map(x => sumLine(e, e.sum.indexOf(x))).join(' & ')}</td>
@@ -6437,7 +6472,7 @@ function coachCard(comp) {
   const mine = C.coachTeam[comp] || (comp === 'bbl' && C.club ? C.club.code : null);
   const picker = ui.ctOpen === comp ? `<select id="ctSel" data-ctc="${comp}"><option value="">No team</option>${codes.map(k => `<option value="${k}" ${k === mine ? 'selected' : ''}>${esc(comp === 'bbl' ? BBL_CLUBS[k].name : STATES[k].name)} (${ab(k)})</option>`).join('')}</select>` : `<button class="mini" data-ctopen="${comp}">Change team</button>`;
   return `<div class="card" style="margin-bottom:14px"><div class="row"><h3>Coach a match in the next round</h3><span class="sm">Your team: <b>${mine ? ab(mine) : 'none'}</b> ${picker}</span></div>
-    <div class="mute sm" style="margin-bottom:6px">Step in as coach for any side. The result counts on the ladder and in everyone's stats.</div>
+    <div class="mute sm" style="margin-bottom:6px">Step in as coach for any side. The result counts on the ladder and in everyone's stats. ${C.domAuto ? 'The AI picks your XI. <button class="mini" data-domauto="0">Let me pick my XIs</button>' : 'You pick the XI before each match you coach. <button class="mini" data-domauto="1">Let the AI pick</button>'}</div>
     ${fx.map((f, i) => { const ours = mine && (f.h === mine || f.a === mine);
       return `<div class="row"><span>${f.r === 'final' ? '<b>Final</b> · ' : ''}${ab(f.h)} v ${ab(f.a)}${ours ? ' <span class="tag">your team</span>' : ''}</span><span>${ours ? `<button class="mini primary" data-coach="${i}" data-cc="${comp}" data-side="${f.h === mine ? 'h' : 'a'}">Coach ${ab(mine)}</button>`
         : `<select class="coachSide" data-i="${i}"><option value="h">${ab(f.h)}</option><option value="a">${ab(f.a)}</option></select> <button class="mini" data-coach="${i}" data-cc="${comp}" data-side="pick">Coach</button>`}</span></div>`; }).join('')}</div>`;
@@ -6508,7 +6543,7 @@ function vPathway() {
   if (t === 'recruit') {
     const list = CR.recruitCandidates(C), y = CR.curWindow(C).season;
     const movers = C.players.AUS.filter(p => p.noIntl || p.qualY);
-    body = `<div class="card"><p class="mute sm">Approach overseas players about moving to Australia. Not everyone wants to: players struggling to get a game at home, younger players, those from smaller cricket nations and anyone with family ties to Australia are the most likely to say yes. Movers join a state straight away and qualify to play for Australia after three years' residency. You can ask each player once a season.</p>
+    body = `<div class="card"><p class="mute sm">Approach overseas players about moving to Australia. Not everyone wants to: players struggling to get a game at home, younger players, those from smaller cricket nations and anyone with family ties to Australia are the most likely to say yes. Movers join a state straight away and qualify to play for Australia after one season of residency (they play domestic cricket this season and are eligible from next season). You can ask each player once a season.</p>
       ${ui.recMsg ? `<div class="${/yes/.test(ui.recMsg) ? 'ok' : 'warn'}">${esc(ui.recMsg)}</div>` : ''}
       ${movers.length ? `<h3>Your recruits</h3>${movers.map(p => `<div class="row sm"><span>${pl(p.name)} (${p.state || ''})</span><span>${p.noIntl ? `Qualifies ${p.qualY}-${String(p.qualY + 1).slice(2)}` : 'Eligible for Australia'}</span></div>`).join('')}` : ''}
       <table style="margin-top:8px"><tr><th>Player</th><th>Nation</th><th class="n">Age</th><th>Role</th><th>Test</th><th>POT</th><th>Interest</th><th></th></tr>
@@ -6594,7 +6629,7 @@ function cellVal(td) {
   if (m && /^[^A-Za-z]{0,3}-?\d/.test(t)) return { n: true, v: parseFloat(m[1]) };
   return { n: false, v: t.toLowerCase() };
 }
-function tableKey(tb, i) { const h = tb.rows[0]; return screen + '|' + i + '|' + (h ? h.textContent.replace(/[▲▼]/g, '').slice(0, 80) : ''); }
+function tableKey(tb, i) { const h = tb.rows[0]; return screen + '|' + i + '|' + (h ? h.textContent.replace(/\s?[▲▼]/g, '').slice(0, 80) : ''); }
 function sortTable(tb, col, dir) {
   const rows = Array.from(tb.rows), head = rows[0], ncell = head.cells.length;
   const body = rows.slice(1).filter(r => !r.querySelector('th'));
@@ -7000,6 +7035,419 @@ function bind59() {
 </script>
 
 
+
+<script>// ===== VERSION 5.10: shortlist, media swaps, headlines, domestic XIs, series stats, recent form, Pathway redesign =====
+// ---------- migration ----------
+function migrate510(c) {
+  if (c.m510) return; c.m510 = true;
+  if (!c.shortlist) c.shortlist = [];
+  const y = curSeason(c);
+  (c.players.AUS || []).forEach(p => { if (p.noIntl && p.qualY && p.qualY > y + 1) p.qualY = Math.max(y + 1, p.qualY - 2); });
+  NATIONS.forEach(n => c.players[n].forEach(p => { if (p.name === 'Josh Hazlewood' && p.prone >= 1.4) p.prone = 1.25; }));
+}
+// ---------- unified recent form (all competitions, newest first) ----------
+const RL_COMPS = { test: ['test', 'shield'], odi: ['odi', 'odc'], t20: ['t20i', 'bbl'] };
+const RL_LBL = { test: 'Test', shield: 'Shield', odi: 'ODI', odc: 'ODC', t20i: 'T20I', bbl: 'BBL' };
+function recentLine(p, fm, n) {
+  const L = (C.rl || {})[p.name]; if (!L || !L.length) return '';
+  const ok = RL_COMPS[fm || 'test'] || RL_COMPS.test;
+  const rows = L.filter(x => ok.includes(x[0])).slice(-(n || 4)).reverse(); if (!rows.length) return '';
+  const showBat = p.role !== 'BOWL', showBowl = p.role === 'BOWL' || p.role === 'AR';
+  const one = x => { const bits = []; if (showBat && x[1]) bits.push(x[1]); if (showBowl && x[2]) bits.push(x[2].split(' & ').map(f => f + 'w').join(' & ').replace(/\/(\d+)w/g, '/$1')); if (!bits.length) bits.push(x[1] || x[2] || 'dnb'); return `${bits.join(', ')} <span style="opacity:.6">${RL_LBL[x[0]] || x[0]}</span>`; };
+  return 'Latest first: ' + rows.map(one).join(' · ');
+}
+recentStr = function (p, fm) { const r = recentLine(p, fm, 4); if (r) return r; const k = CR.FMT_COMP[fm || 'test'], s = (C.stats[p.name] || {})[k]; if (!s) return '';
+  const b = p.role === 'BOWL' ? '' : s.recentBat.slice(-4).reverse().join(', '), w = p.role === 'BAT' || p.role === 'WK' ? '' : s.recentBowl.slice(-4).reverse().join(', ');
+  return [b && `${FNP[fm || 'test']} (latest first): ` + b, w && `wickets: ${w}`].filter(Boolean).join(' · '); };
+// ---------- shortlist / talent watch ----------
+const isSL = n => (C.shortlist || []).includes(n);
+function slStar(n) { const on = isSL(n); return `<a class="slst ${on ? 'on' : ''}" data-slt="${esc(n)}" title="${on ? 'Remove from shortlist' : 'Add to shortlist'}">${on ? '★' : '☆'}</a> `; }
+function slToggle(n) { if (!C.shortlist) C.shortlist = []; const i = C.shortlist.indexOf(n); if (i >= 0) C.shortlist.splice(i, 1); else C.shortlist.push(n); save(); }
+const _pe510 = profileExtras;
+profileExtras = function (p) { return `<div class="btns" style="margin-top:8px"><button class="mini ${isSL(p.name) ? 'primary' : ''}" data-slbtn="${esc(p.name)}">${isSL(p.name) ? '★ On your shortlist' : '☆ Add to shortlist'}</button></div>` + _pe510(p); };
+// ---------- media pressure: bring X in, drop like-for-like Y ----------
+function likeType(p) { if (p.role === 'WK') return 'wk'; if (p.role === 'BOWL') return p.bowl && isPace(p.bowl.type) ? 'pace' : 'spin'; if (p.role === 'AR') return 'ar'; return 'bat'; }
+const LT_NAME = { wk: 'keeper', pace: 'quick', spin: 'spinner', ar: 'all-rounder', bat: 'batter' };
+function recentWhy(c, p) {
+  const L = ((c.rl || {})[p.name] || []).filter(x => x[0] === 'test' || x[0] === 'shield').slice(-4);
+  const bowl = ['pace', 'spin'].includes(likeType(p));
+  if (L.length) {
+    if (bowl) { const ws = L.flatMap(x => (x[2] || '').split(' & ').filter(Boolean)); const w = ws.reduce((a, f) => a + (+f.split('/')[0] || 0), 0); return `${w} wicket${w === 1 ? '' : 's'} in his last ${ws.length} innings`; }
+    const rs = L.flatMap(x => (x[1] || '').split(' & ').filter(Boolean)); const r = rs.reduce((a, x) => a + (parseInt(x) || 0), 0); return `${r} runs in his last ${rs.length} innings`;
+  }
+  const f = p.form || 0; return f <= -2.5 ? 'out of form' : `rated ${overall(p)}`;
+}
+// recent Test and Shield output against what a regular should manage: negative means struggling
+function recentScore(c, p) {
+  const L = ((c.rl || {})[p.name] || []).filter(x => x[0] === 'test' || x[0] === 'shield').slice(-4); if (!L.length) return 0;
+  if (['pace', 'spin'].includes(likeType(p))) { const ws = L.flatMap(x => (x[2] || '').split(' & ').filter(Boolean)); if (!ws.length) return 0; const w = ws.reduce((a, f) => a + (+f.split('/')[0] || 0), 0); return clamp((w / ws.length - 1.6) * 2, -4, 4); }
+  const rs = L.flatMap(x => (x[1] || '').split(' & ').filter(Boolean)); if (!rs.length) return 0; const r = rs.reduce((a, x) => a + (parseInt(x) || 0), 0); return clamp((r / rs.length - 35) / 8, -4, 4);
+}
+function pressureDrop(c, inName, squad) {
+  const q = P_(c, inName); if (!q) return null;
+  const t = likeType(q), groups = { wk: ['wk'], pace: ['pace'], spin: ['spin'], ar: ['ar', 'pace', 'spin', 'bat'], bat: ['bat', 'ar'] }[t];
+  const cands = squad.map(n => P_(c, n)).filter(p => p && p.name !== c.captain && !p.injury);
+  for (const g of groups) {
+    const pool = cands.filter(p => likeType(p) === g); if (!pool.length) continue;
+    const score = p => overall(p) + (p.form || 0) * 1.4 + recentScore(c, p) + (p.morale != null ? (p.morale - 60) * 0.03 : 0);
+    const d = pool.sort((a, b) => score(a) - score(b))[0], rs = recentScore(c, d);
+    const why = rs < -1 || (d.form || 0) <= -2.5 ? `out of form: ${recentWhy(c, d)}` : `the weakest ${LT_NAME[g]} in the squad (rated ${overall(d)})`;
+    return { n: d.name, t: g, why: `${LT_NAME[g]} for ${LT_NAME[t]}; ${why}` };
+  }
+  return null;
+}
+function pressureCandidates(c, squad) {
+  const sh = c.shield.stats, aus = n => { const p = P_(c, n); return p && p.nat === 'AUS'; };
+  const runs = Object.entries(sh).filter(([n]) => aus(n)).sort((a, b) => b[1].runs - a[1].runs).slice(0, 5).filter(([n, s]) => s.runs >= 400);
+  const wks = Object.entries(sh).filter(([n]) => aus(n)).sort((a, b) => b[1].wk - a[1].wk).slice(0, 5).filter(([n, s]) => s.wk >= 20);
+  const calls = [...runs.map(([n, s]) => [n, `${s.runs} Shield runs at ${(s.runs / Math.max(1, s.inn - s.no)).toFixed(1)}`]), ...wks.map(([n, s]) => [n, `${s.wk} Shield wickets`])]
+    .filter(([n]) => !squad.includes(n) && P_(c, n) && !P_(c, n).injury && !P_(c, n).noIntl);
+  const sqO = squad.map(n => P_(c, n)).filter(Boolean).map(p => overall(p)).sort((a, b) => a - b);
+  const bar = Math.max(78, (sqO[Math.min(3, sqO.length - 1)] || 80) - 2), seen = new Set();
+  return calls.filter(([n]) => overall(P_(c, n)) >= bar && !seen.has(n) && seen.add(n)).slice(0, 3).map(([n, why]) => { const d = pressureDrop(c, n, squad); return { n, why, d }; });
+}
+function pressureBox(f, squad) {
+  if (fmtF(f) !== 'test' || !C.shield) return '';
+  const L = pressureCandidates(C, squad); if (!L.length) return '';
+  return `<div class="card press" style="margin-bottom:10px"><div class="row"><b>📰 The media want changes</b><span class="mute sm">Leaving in-form contenders out costs a little board confidence.</span></div>
+    ${L.map(x => `<div class="row sm" style="gap:8px;flex-wrap:wrap"><span>Bring in <b>${pl(x.n)}</b> <span class="mute">(${esc(x.why)})</span>${x.d ? ` · drop <b>${pl(x.d.n)}</b> <span class="mute">(${esc(x.d.why)})</span>` : ''}</span>${x.d ? `<button class="mini" data-pswap="${esc(x.n)}|${esc(x.d.n)}">Make the swap</button>` : ''}</div>`).join('')}</div>`;
+}
+function pressureSeriesHTML(f) {
+  const can = f.status !== 'done' && !C.match;
+  return `<div class="warn sm" style="margin-top:4px">📰 Media pressure: ${f.pressure.map(x => `bring in <b>${esc(x[0])}</b>${x[2] ? ` for <b>${esc(x[2])}</b> <span class="mute">(${esc(x[3] || '')})</span>` : ''}${x[2] && can && f.squad.includes(x[2]) && !f.squad.includes(x[0]) ? ` <button class="mini" data-sswap="${esc(x[0])}|${esc(x[2])}">Swap</button>` : ''}`).join('; ')}</div>`;
+}
+function seriesSwap(f, inN, outN) {
+  const i = f.squad.indexOf(outN); if (i < 0 || f.squad.includes(inN)) return;
+  f.squad[i] = inN; if (f.lastXI) f.lastXI = f.lastXI.map(n => n === outN ? inN : n);
+  f.pressure = (f.pressure || []).filter(x => x[0] !== inN);
+  const a = CR.P_(C, inN), b = CR.P_(C, outN); if (a) CR.moraleAdd(a, 5); if (b) CR.moraleAdd(b, -5);
+  CR.news(C, `Selection: ${inN} is called into the squad, ${outN} makes way. The media are satisfied, for now.`, 'good');
+  if (C.board) { C.board.conf = Math.min(100, C.board.conf + 0.5); }
+  ui.xi = null; save();
+}
+// ---------- headlines ----------
+const MASTHEADS = ['The Daily Nick', 'The Back Foot', 'Sunday Slog', 'The Third Man', 'Long Room Ledger', 'The Nightwatchman', 'Square Leg Gazette', 'The Outside Edge', 'Silly Point Sentinel', 'The Dibbly-Dobbly Post'];
+const hpick = a => a[Math.floor(Math.random() * a.length)];
+const fillH = (t, o) => t.replace(/\{(\w+)\}/g, (_, k) => o[k] != null ? o[k] : '');
+function mediaHeadlines(c, m, f, fm) {
+  const us = m.user, them = 1 - us, U = m.teams[us], T = m.teams[them], opp = T.name, venue = (m.venue && m.venue.name || '').split(',')[0];
+  const won = m.result.winner === us, lost = m.result.winner === them, lo = fm !== 'test';
+  const bat = [], bowl = [];
+  m.innings.forEach(inn => { if (inn.so) return;
+    inn.cards.forEach((cd, i) => { if (cd.status === 'dnb') return; bat.push({ t: inn.bat, n: m.teams[inn.bat].players[i].name, r: cd.runs, b: cd.balls, out: cd.status === 'out', pos: inn.order ? inn.order.indexOf(i) : i }); });
+    Object.keys(inn.bowling).forEach(i => { const b = inn.bowling[i]; bowl.push({ t: inn.bowl, n: m.teams[inn.bowl].players[+i].name, w: b.wkts, r: b.runs, l: b.legal }); }); });
+  const ourInns = m.innings.filter(i => i.bat === us && !i.so), H = [];
+  const add = (txt, tone) => H.push({ txt, tone });
+  const o = { opp, venue, VENUE: venue.toUpperCase(), OPP: opp.toUpperCase(), oppS: T.short, res: m.result.text.replace(/^Australia /, '') };
+  const lowAll = ourInns.filter(i => i.wkts >= 10).sort((a, b) => a.runs - b.runs)[0];
+  const collapseAt = fm === 't20' ? 110 : fm === 'odi' ? 170 : 160;
+  // the result
+  if (won) add(fillH(hpick(m.result.text.match(/innings|by (\d{3}) runs|by (9|10) wickets/) ? ['{OPP} FLATTENED AT {VENUE}', 'BAGGY GREEN BULLDOZER: {opp} crushed', 'Too easy: {opp} sent packing inside the distance', 'Ruthless. Relentless. Australian.'] : ['Job done at {venue}', 'Aussies grind past {opp}', 'Win in the bag, but {opp} made them sweat', 'Get in: Australia edge {opp}']), o), 'good');
+  else if (lost) add(fillH(hpick(m.result.text.match(/innings|by (\d{3}) runs|by (8|9|10) wickets/) ? ['HUMILIATION AT {VENUE}', 'Embarrassing. Spineless. Over.', '{opp} make Australia look like a club side', 'Hide the scorecard: {opp} rout sorry Aussies', 'Who picked this team?'] : ['{opp} pinch it at {venue}', 'So close, so Australian, so lost', 'Heartbreak at {venue} as {opp} hold their nerve', 'Questions for the selectors after {venue} slip-up']), o), 'bad');
+  else add(fillH(hpick(['Stalemate at {venue}: five days, no winner, plenty of yawns', 'Rain, grind and a draw nobody will remember', 'Honours even at {venue}', 'Bore draw: {venue} snoozefest ends level']), o), '');
+  if (lowAll && lowAll.runs < collapseAt) add(fillH(hpick(['ALL OUT FOR {n}: {venue} horror show', '{n}?! Cardboard cut-outs would have lasted longer', 'Batting? What batting? Aussies fold for {n}', 'Top order goes missing, {n} all out, nation weeps', 'Somebody call a batting coach: {n} all out']), Object.assign({ n: lowAll.runs }, o)), 'bad');
+  // individuals: Australians first, the good then the ugly
+  const ours = bat.filter(x => x.t === us), oursB = bowl.filter(x => x.t === us);
+  const big = ours.filter(x => x.r >= (lo ? (fm === 't20' ? 75 : 100) : 100)).sort((a, b) => b.r - a.r)[0];
+  if (big) add(fillH(big.r >= 200 ? hpick(['DOUBLE TROUBLE: {n} plunders {r}', '{n} {r}! Somebody check the scoreboard']) : hpick(['Take a bow, {n}: {r} and counting', '{n} TONS UP against {opp}', '{n} makes it look easy with {r}', 'Class is permanent: {n} {r}']), Object.assign({ n: big.n, r: big.r }, o)), 'good');
+  const fiver = oursB.filter(x => x.w >= (fm === 't20' ? 4 : 5)).sort((a, b) => b.w - a.w || a.r - b.r)[0];
+  if (fiver) add(fillH(hpick(['{n} RUNS RIOT: {w}/{r}', '{n} too hot to handle with {w}/{r}', 'Unplayable! {n} rips through {opp}', '{opp} have no answer to {n}']), Object.assign({ n: fiver.n, w: fiver.w, r: fiver.r }, o)), 'good');
+  const byName = {}; ours.forEach(x => { (byName[x.n] = byName[x.n] || []).push(x); });
+  const pair = Object.entries(byName).find(([n, a]) => a.length >= 2 && a.every(x => x.r === 0 && x.out));
+  if (pair) add(fillH(hpick(['PAIR! {n}\'s nightmare at {venue}', 'Spectacles for {n}: two innings, zero runs', '{n} bags a pair. Is the end nigh?']), Object.assign({ n: pair[0] }, o)), 'bad');
+  else { const duck = ours.filter(x => x.r === 0 && x.out && x.pos >= 0 && x.pos <= 5)[0];
+    if (duck && Math.random() < 0.5) add(fillH(hpick(['Quack quack: {n} out for nought', '{n} gone for a duck, and the knives are out', 'Golden opportunity, zero runs: {n} fails again', '{n} walks back for 0. Is his spot safe?']), Object.assign({ n: duck.n }, o)), 'bad'); }
+  const tot = {}; ours.forEach(x => { if (x.pos <= 5) tot[x.n] = (tot[x.n] || 0) + x.r; });
+  const flop = Object.entries(tot).filter(([n, r]) => (byName[n] || []).length >= (lo ? 1 : 2) && r <= (lo ? 3 : 12) && !(pair && pair[0] === n)).map(([n, r]) => ({ n, r }))[0];
+  if (flop && lost && Math.random() < 0.6) add(fillH(hpick(['{n}: {r} runs. Enough said.', 'Passenger alert: {n} manages {r} for the match', 'Time to drop {n}? {r} runs and counting the days']), Object.assign(flop, o)), 'bad');
+  const exp = oursB.filter(x => x.l >= (lo ? 18 : 60) && (lo ? x.w <= 1 && x.r / x.l * 6 >= (fm === 't20' ? 11 : 7.5) : x.w === 0 && x.r >= 100)).sort((a, b) => b.r - a.r)[0];
+  if (exp) add(fillH(hpick(['Batting practice: {n} serves up {r} runs', '{n} carted for {r}. Bring a helmet for the bowler next time', '{n} goes the journey: {w}/{r} and no answers', 'Buffet bowling from {n}: {w}/{r}']), Object.assign({ n: exp.n, w: exp.w, r: exp.r }, o)), 'bad');
+  const capt = U.players[U.cap];
+  if (capt && lost && !lo && (byName[capt.name] || []).length >= 2 && tot[capt.name] != null && tot[capt.name] < 20) add(fillH('Captain {n} leads from the back: {r} runs in a losing cause', Object.assign({ n: capt.name, r: tot[capt.name] }, o)), 'bad');
+  const theirStar = bat.filter(x => x.t === them).sort((a, b) => b.r - a.r)[0];
+  if (theirStar && theirStar.r >= (lo ? 110 : 150) && !won) add(fillH(hpick(['{n} makes the Aussie attack look like net bowlers', 'Who bowls to {n}? Nobody, apparently', '{n} {r}: an absolute flogging']), Object.assign({ n: theirStar.n, r: theirStar.r }, o)), 'bad');
+  const out = [H[0]].concat(H.slice(1).sort(() => Math.random() - 0.5).slice(0, 2));
+  const used = new Set();
+  out.forEach(h => { let mh; do { mh = hpick(MASTHEADS); } while (used.has(mh) && used.size < MASTHEADS.length); used.add(mh); news(c, `📰 ${mh}: “${h.txt}”`, h.tone === 'bad' ? 'bad' : h.tone === 'good' ? 'good' : ''); });
+}
+// ---------- pick your own XI for domestic matches you coach ----------
+function ovXI(c, s) { const o = c._xiOv; if (!o || o.t !== s) return null; const L = o.n.map(n => P_(c, n)).filter(Boolean); return L.length === 11 ? L : null; }
+function domPoolFor(fx, side) {
+  const un = bblUnavail(C);
+  if (fx.comp === 'shield') return statePool(C, side).filter(p => !p.wbOnly && available(p) && !un.has(p.name));
+  if (fx.comp === 'odc') return statePool(C, side).filter(p => !bblOnly(p) && available(p) && !un.has(p.name));
+  if (C.bbl && typeof fx.r !== 'string') C.bbl.curRound = fx.r;
+  return bblPool(C, side, un);
+}
+function domAIOrder(fx, side, pool) {
+  const venue = VENUES[fx.comp === 'bbl' ? BBL_CLUBS[fx.h].home : STATES[fx.h].home];
+  if (fx.comp === 'shield') return autoXI(pool, venue, null, true);
+  return domesticXI(C, pool, fx.comp === 'odc' ? 'odi' : 't20', venue, null, fx.comp === 'bbl' ? (C.cm && C.cm.noOS ? 99 : 3) : undefined).map(p => p.name);
+}
+function domXIStart(fx, side) {
+  if (C.domAuto) return domXIGo(fx, side, null);
+  const pool = domPoolFor(fx, side), ai = domAIOrder(fx, side, pool);
+  ui.dx = { fx, side, pool: pool.map(p => p.name), ai, sel: new Set(ai) };
+  openModal(domXIModal);
+}
+function domXIGo(fx, side, names) {
+  modalFn = null;
+  if (names) C._xiOv = { t: side, n: names };
+  try { C.match = CR.buildDomMatch(C, fx, side); } finally { delete C._xiOv; }
+  save(); tab = 'comm'; go('match');
+}
+function domXIOrder(d) {
+  const rk = { BAT: 3.5, WK: 5.5, AR: 6.5, BOWL: 9.5 };
+  return [...d.sel].map(n => ({ n, k: d.ai.includes(n) ? d.ai.indexOf(n) : (rk[(CR.P_(C, n) || {}).role] || 8) })).sort((a, b) => a.k - b.k).map(x => x.n);
+}
+function domXIModal() {
+  const d = ui.dx; if (!d) return '';
+  const fx = d.fx, fm = fx.comp === 'shield' ? 'test' : fx.comp === 'odc' ? 'odi' : 't20';
+  const nm = x => fx.comp === 'bbl' ? BBL_CLUBS[x].name : STATES[x].name;
+  const ps = d.pool.map(n => CR.P_(C, n)).filter(Boolean).sort((a, b) => (d.sel.has(b.name) - d.sel.has(a.name)) || E.fmtOVR(b, fm) - E.fmtOVR(a, fm));
+  const ch = ps.filter(p => d.sel.has(p.name)), os = ch.filter(p => p.nat !== 'AUS').length, wk = ch.filter(p => p.role === 'WK').length;
+  const osMax = fx.comp === 'bbl' ? (C.cm && C.cm.noOS ? 99 : 3) : 99, okN = ch.length === 11 && os <= osMax;
+  const cnt = r => ch.filter(p => p.role === r).length;
+  return `<div class="modal-bg locked"><div class="modal wide xl"><div class="mute sm">${fx.comp === 'shield' ? 'Sheffield Shield' : fx.comp === 'odc' ? 'One-Day Cup' : 'BBL'}${typeof fx.r === 'string' ? ' final' : ''} · ${esc(nm(fx.h))} v ${esc(nm(fx.a))}</div>
+    <h2>Pick the ${esc(nm(d.side))} XI</h2>
+    <div class="row sm"><span><b class="${okN ? 'win' : 'loss'}">${ch.length}/11</b> · ${cnt('BAT')} batters · <span class="${wk ? '' : 'warnc'}">${wk} keeper${wk === 1 ? '' : 's'}</span> · ${cnt('AR')} all-rounders · ${cnt('BOWL')} bowlers${fx.comp === 'bbl' ? ` · <span class="${os > osMax ? 'warnc' : ''}">${os}/${osMax > 10 ? '∞' : osMax} overseas</span>` : ''}</span><span class="mute">The AI's XI is ticked to start with.</span></div>
+    <div class="scroll" style="max-height:52vh;overflow:auto;margin-top:8px"><table class="nosort"><tr><th></th><th>Player</th><th>Role</th><th>${FN[fm]}</th><th>Form</th><th>Recent</th></tr>
+    ${ps.map(p => `<tr class="pick ${d.sel.has(p.name) ? 'sel' : ''}" data-dxt="${esc(p.name)}"><td><input type="checkbox" ${d.sel.has(p.name) ? 'checked' : ''}></td><td>${pl(p.name)}${p.nat !== 'AUS' ? ` <span class="tag">${p.nat}</span>` : ''}${d.ai.includes(p.name) ? '' : ' <span class="mute sm">(not in AI XI)</span>'}</td><td>${p.role}</td><td>${badge(E.fmtOVR(p, fm))}</td><td>${formTag(p)}</td><td class="sm mute">${recentLine(p, fm, 3)}</td></tr>`).join('')}</table></div>
+    <label class="chk" style="margin-top:8px"><input type="checkbox" id="dxAuto"> Always let the AI pick and skip this screen (change back on the Domestic tab)</label>
+    <div class="btns"><button class="primary" id="dxGo" ${okN ? '' : 'disabled'}>Play with this XI</button><button id="dxAI">Reset to AI XI</button><button id="dxAIGo">Just use the AI XI</button><button id="dxX">Cancel</button>
+    ${!okN ? `<span class="warnc sm">${ch.length !== 11 ? 'Pick exactly 11.' : `Only ${osMax} overseas players allowed.`}</span>` : ''}</div></div></div>`;
+}
+startCoach = function (comp, i, sideKey) {
+  const list = comp === 'bbl' && screen === 'club' ? clubFixtures(C) : nextRoundFixtures(C, comp);
+  const fx = list[i]; if (!fx) return;
+  if (sideKey === 'pick') { const sel = document.querySelector(`.coachSide[data-i="${i}"]`); sideKey = sel ? sel.value : 'h'; }
+  const side = sideKey === 'a' ? fx.a : sideKey === 'h' ? fx.h : (C.club && (fx.h === C.club.code || fx.a === C.club.code) ? C.club.code : fx.h);
+  domXIStart(fx, side);
+};
+// ---------- series stats from the Results archive ----------
+function sstatsModal(gi) {
+  const g = (ui._rg || [])[gi]; if (!g) return '';
+  const ents = g.rows.map(r => C.archive[r.i]).filter(e => e && e.card), L = CR.leadersFrom(ents);
+  const runs = L.filter(x => x.inn).sort((a, b) => b.runs - a.runs), wk = L.filter(x => x.balls).sort((a, b) => b.wk - a.wk || a.bRuns - b.bRuns);
+  const pos = posForGroup(g, ents[0] ? ents[0].y : 0), lo = ['odi', 't20i', 'odc', 'bbl'].includes(g.comp);
+  const hund = n => { let h = 0, f = 0; ents.forEach(e => e.card.forEach(inn => inn.bat.forEach(b => { if (b[0] === n) { if (b[1] >= 100) h++; else if (b[1] >= 50) f++; } }))); return [h, f]; };
+  const balls = n => { let bf = 0; ents.forEach(e => e.card.forEach(inn => inn.bat.forEach(b => { if (b[0] === n) bf += b[2]; }))); return bf; };
+  return `<div class="modal-bg"><div class="modal wide xl"><div class="mute sm">${COMPL[g.comp] || g.comp} · ${ents.length} match${ents.length === 1 ? '' : 'es'} with scorecards</div><h2>${esc(g.title)}</h2>
+    ${pos ? `<p class="sm">Player of the ${/Cup/.test(g.title) ? 'tournament' : 'series'}: <b>${pl(pos.name)}</b> <span class="mute">(${esc(pos.text)})</span></p>` : ''}
+    <h3 style="margin-top:8px">Batting</h3><div class="scroll"><table><tr><th>Player</th><th class="n">M</th><th class="n">Inn</th><th class="n">NO</th><th class="n">Runs</th><th class="n">HS</th><th class="n">Avg</th>${lo ? '<th class="n">SR</th>' : ''}<th class="n">100s</th><th class="n">50s</th></tr>
+    ${runs.map(x => { const [h, f] = hund(x.n), bf = balls(x.n); return `<tr><td>${pl(x.n)}</td><td class="n">${x.m}</td><td class="n">${x.inn}</td><td class="n">${x.no}</td><td class="n">${x.runs}</td><td class="n">${x.hs}</td><td class="n">${x.inn - x.no ? (x.runs / (x.inn - x.no)).toFixed(1) : '-'}</td>${lo ? `<td class="n">${bf ? (x.runs / bf * 100).toFixed(1) : '-'}</td>` : ''}<td class="n">${h}</td><td class="n">${f}</td></tr>`; }).join('')}</table></div>
+    <h3 style="margin-top:12px">Bowling</h3><div class="scroll"><table><tr><th>Player</th><th class="n">M</th><th class="n">Overs</th><th class="n">Runs</th><th class="n">Wkts</th><th class="n">Best</th><th class="n">Avg</th><th class="n">Econ</th></tr>
+    ${wk.map(x => `<tr><td>${pl(x.n)}</td><td class="n">${x.m}</td><td class="n">${E.oversStr(x.balls)}</td><td class="n">${x.bRuns}</td><td class="n">${x.wk}</td><td class="n">${x.best[0]}/${x.best[1] === 999 ? '-' : x.best[1]}</td><td class="n">${x.wk ? (x.bRuns / x.wk).toFixed(1) : '-'}</td><td class="n">${x.balls ? (x.bRuns / x.balls * 6).toFixed(2) : '-'}</td></tr>`).join('')}</table></div>
+    <div class="btns"><button id="mClose">Close</button></div></div></div>`;
+}
+// ---------- Pathway redesign ----------
+const _vPathway59 = vPathway;
+function pwProspects(n) {
+  return C.players.AUS.filter(p => !p.retired && p.age <= 23 && !p.wbOnly).map(p => ({ p, pot: Math.max(E.potential(p), E.wbPotential(p, 'odi'), E.wbPotential(p, 't20')) }))
+    .sort((a, b) => b.pot - a.pot || E.overall(b.p) - E.overall(a.p)).slice(0, n || 8).map(x => x.p);
+}
+function growthOf(p) { const h = p.hist || []; if (h.length < 2) return null; return h[h.length - 1].o - h[h.length - 2].o; }
+function ovpBar(o, pot) { return `<div class="ovp"><i style="width:${Math.max(4, Math.min(100, o))}%"></i><b style="left:${Math.max(0, Math.min(100, pot))}%"></b></div>`; }
+function pCard(p, extra) {
+  const r = potRange(p), o = E.overall(p), pot = r ? r[1] : E.potential(p), g = growthOf(p);
+  return `<div class="pcard"><div class="row"><span>${slStar(p.name)}${pl(p.name)}</span>${badge(o)}</div>
+    <div class="mute sm">${p.age} · ${p.state || p.nat} · ${roleName[p.role]}${p.bowl ? ' · ' + p.bowl.type : ''}</div>
+    ${ovpBar(o, pot)}<div class="row sm"><span class="mute">Potential ${r ? `${r[0]} to ${r[1]}` : E.potential(p)}</span><span>${g != null ? `<span class="${g > 0 ? 'win' : g < 0 ? 'loss' : 'mute'}">${g > 0 ? '+' : ''}${g} last season</span>` : ''} ${formTag(p)} ${injTag(p)}</span></div>
+    ${extra || ''}</div>`;
+}
+vPathway = function () {
+  const t = ui.pt || 'overview';
+  const SL = (C.shortlist || []).map(n => CR.P_(C, n)).filter(Boolean);
+  const tabs = `<div class="pwtabs">${[['overview', 'Overview', '◎'], ['watch', `Talent watch${SL.length ? ' · ' + SL.length : ''}`, '★'], ['academy', 'Centre of Excellence', '🎓'], ['u19', 'Under-19s', '🏆'], ['atour', 'Australia A', '✈'], ['wl', 'Fast-bowler workloads', '⚡'], ['recruit', 'Overseas recruits', '🌏']].map(([x, l, ic]) => `<button data-pt="${x}" class="${t === x ? 'on' : ''}"><span>${ic}</span>${l}</button>`).join('')}</div>`;
+  const hero = `<div class="pwhero"><div><div class="mute sm cond" style="letter-spacing:.12em">THE PATHWAY</div><h2>From backyard to baggy green</h2><div class="mute sm">Scout the kids, give them cricket, and decide when they're ready.</div></div></div>`;
+  if (!['overview', 'watch'].includes(t)) { const old = _vPathway59.call(null); return old.replace(/<h2 style="margin-bottom:10px">Pathway<\/h2><div class="tabs"[^]*?<\/div>/, hero + tabs); }
+  let body = '';
+  if (t === 'overview') {
+    const A = typeof academy === 'function' ? academy(C) : { cap: 0, sch: [] }, acad = typeof academyPlayers === 'function' ? academyPlayers(C) : [];
+    const y0 = +C.date.slice(0, 4), nextU = [y0, y0 + 1, y0 + 2].find(y => y % 2 === 0 && y >= 2028 && !(C.u19 && C.u19[y]));
+    const qs = C.players.AUS.filter(p => p.bowl && E.isPace(p.bowl.type) && !p.wbOnly && (E.overall(p) >= 70 || (C.contracts || []).includes(p.name)));
+    const risky = qs.filter(p => injRisk(C, p) >= 12).sort((a, b) => injRisk(C, b) - injRisk(C, a));
+    const recs = C.players.AUS.filter(p => p.noIntl || p.qualY), aOK = typeof aTourAvailable === 'function' && aTourAvailable(C);
+    const tile = (k, big, lbl, sub) => `<div class="pwtile" data-pt="${k}"><b>${big}</b><span>${lbl}</span>${sub ? `<i>${sub}</i>` : ''}</div>`;
+    const pros = pwProspects(8);
+    const knock = C.players.AUS.filter(p => !p.retired && !p.wbOnly && p.age <= 27 && E.overall(p) >= 74 && !['test'].some(k => ((C.stats[p.name] || {})[k] || {}).m)).sort((a, b) => E.overall(b) - E.overall(a)).slice(0, 6);
+    body = `<div class="pwtiles">${tile('academy', acad.length, 'In the academy', `${A.sch.length}/${A.cap} scholarships`)}${tile('u19', nextU || '-', 'Next U19 World Cup', nextU && U19_HOSTS[nextU] ? 'in ' + tName(U19_HOSTS[nextU]) : '')}${tile('atour', aOK ? 'Ready' : 'Done', 'Australia A tour', aOK ? 'pick a squad' : 'this season')}${tile('wl', risky.length, 'Quicks at high risk', risky[0] ? risky[0].name.split(' ').pop() + ' ' + injRisk(C, risky[0]) + '%' : 'all clear')}${tile('recruit', recs.length, 'Overseas recruits', recs.filter(p => p.noIntl).length + ' still qualifying')}${tile('watch', SL.length, 'On your shortlist', 'talent watch')}</div>
+      <h3 style="margin-top:16px">Rising stars <span class="mute sm" style="text-transform:none">· best potential, 23 and under</span></h3>
+      <div class="pgrid">${pros.map(p => pCard(p)).join('') || '<div class="mute">No young players yet.</div>'}</div>
+      ${knock.length ? `<h3 style="margin-top:16px">Knocking on the door <span class="mute sm" style="text-transform:none">· uncapped in Tests, rated 74+</span></h3><div class="pgrid">${knock.map(p => pCard(p, `<div class="sm mute" style="margin-top:4px">${recentLine(p, 'test', 3)}</div>`)).join('')}</div>` : ''}`;
+  }
+  if (t === 'watch') {
+    body = SL.length ? `<p class="mute sm">Your talent watch. Players you shortlist show a ★ everywhere, and you can filter to them in the Players tab and in squad selection.</p>
+      <div class="pgrid">${SL.map(p => pCard(p, `<div class="sm mute" style="margin-top:4px">${p.nat !== 'AUS' ? `${tName(p.nat)} · ` : ''}${recentLine(p, 'test', 3) || recentLine(p, 'odi', 2) || recentLine(p, 't20', 2) || 'No recent matches.'}</div>`)).join('')}</div>`
+      : `<div class="card"><h3>Your talent watch is empty</h3><p class="mute sm">Tap the ☆ next to any player (Players tab, squad selection, Rising stars below) or use "Add to shortlist" on his profile. Shortlisted players are tracked here with their ratings, growth and latest scores.</p></div>
+      <h3 style="margin-top:16px">Suggestions</h3><div class="pgrid">${pwProspects(6).map(p => pCard(p)).join('')}</div>`;
+  }
+  return `<div class="wrap">${hero}${tabs}${body}</div>`;
+};
+// ---------- bindings ----------
+function bind510() {
+  const on = (sel, ev, fn) => document.querySelectorAll(sel).forEach(el => el[ev] = fn);
+  on('[data-slt]', 'onclick', e => { e.stopPropagation(); e.preventDefault(); slToggle(e.currentTarget.dataset.slt); render(); });
+  on('[data-slbtn]', 'onclick', e => { slToggle(e.currentTarget.dataset.slbtn); render(); });
+  on('#sqSL', 'onchange', e => { ui.slOnly = e.target.checked; render(); });
+  on('[data-pswap]', 'onclick', e => { const [a, b] = e.currentTarget.dataset.pswap.split('|'); if (ui.sel) { ui.sel.delete(b); ui.sel.add(a); } render(); });
+  on('[data-sswap]', 'onclick', e => { const [a, b] = e.currentTarget.dataset.sswap.split('|'); const f = ui.fx || curFixture(); if (f) seriesSwap(f, a, b); render(); });
+  on('[data-sstats]', 'onclick', e => { const gi = +e.currentTarget.dataset.sstats; openModal(() => sstatsModal(gi)); });
+  on('[data-dxt]', 'onclick', e => { if (e.target.closest('a')) return; const n = e.currentTarget.dataset.dxt, d = ui.dx; if (!d) return; if (d.sel.has(n)) d.sel.delete(n); else d.sel.add(n); render(); });
+  on('#dxAI', 'onclick', () => { if (ui.dx) ui.dx.sel = new Set(ui.dx.ai); render(); });
+  on('#dxX', 'onclick', () => { ui.dx = null; modalFn = null; render(); });
+  on('#dxGo', 'onclick', () => { const d = ui.dx; if (!d) return; if ($('#dxAuto') && $('#dxAuto').checked) C.domAuto = true; ui.dx = null; domXIGo(d.fx, d.side, domXIOrder(d)); });
+  on('#dxAIGo', 'onclick', () => { const d = ui.dx; if (!d) return; if ($('#dxAuto') && $('#dxAuto').checked) C.domAuto = true; ui.dx = null; domXIGo(d.fx, d.side, null); });
+  on('[data-domauto]', 'onclick', e => { C.domAuto = e.currentTarget.dataset.domauto === '1'; save(); render(); });
+  // shield final and pending BBL matches also go through the XI picker
+  on('#shPlay', 'onclick', () => { const [h, a] = C.shield.finalDue; modalFn = null; domXIStart({ comp: 'shield', r: 'final', h, a }, C.coachTeam.shield); });
+  on('#bblPlay', 'onclick', () => { const [r, h, a] = C.bbl.pending[0]; const mine = (C.club && C.club.code) || (C.coachTeam || {}).bbl; modalFn = null; domXIStart({ comp: 'bbl', r, h, a }, h === mine || a === mine ? mine : h); });
+  if (screen === 'pathway') on('.pwtile[data-pt]', 'onclick', e => { ui.pt = e.currentTarget.dataset.pt; render(); });
+}
+</script>
+<style>
+a.slst{cursor:pointer;color:var(--mute);text-decoration:none;font-size:14px}a.slst.on{color:var(--gold)}a.slst:hover{color:var(--gold)}
+.card.press{border-color:#7a5a2a;background:linear-gradient(90deg,#2a2414,#13291f)}
+.pwhero{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:16px;padding:20px 22px;margin-bottom:12px;background:radial-gradient(500px 200px at 90% 0,#2d6a49 0,transparent 70%),linear-gradient(135deg,#183a2a,#0f2219)}
+.pwhero:after{content:'';position:absolute;right:-30px;top:-30px;width:180px;height:180px;border-radius:50%;border:2px dashed rgba(242,200,75,.18)}
+.pwhero h2{font-size:30px;margin:2px 0}
+.pwtabs{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 14px}.pwtabs button{display:inline-flex;gap:6px;align-items:center;border-radius:99px;padding:7px 14px;font-size:13px}.pwtabs button span{opacity:.8}.pwtabs button.on{background:var(--gold);color:#1a1a1a;border-color:var(--gold)}
+.pwtiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.pwtile{cursor:pointer;background:linear-gradient(180deg,#183327,#11261c);border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:2px;transition:border-color .15s,transform .15s}
+.pwtile:hover{border-color:var(--gold);transform:translateY(-1px)}.pwtile b{font:700 30px/1 'Barlow Condensed';color:var(--cream)}.pwtile span{font-size:12px;color:var(--ink);font-weight:600}.pwtile i{font-style:normal;font-size:11px;color:var(--mute)}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:10px}
+.pcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px}.pcard:hover{border-color:#3d6b57}
+.ovp{position:relative;height:8px;border-radius:4px;background:#22392e;margin:8px 0 4px}.ovp i{position:absolute;left:0;top:0;bottom:0;border-radius:4px;background:linear-gradient(90deg,#3d8a5f,var(--gold))}.ovp b{position:absolute;top:-3px;width:2px;height:14px;background:var(--cream);border-radius:1px}
+</style>
+
+<script>// ===== VERSION 5.10: trophy tallies and dynasty ratings (Results tab) =====
+function serLog(c, comp, a, b, aw, bw, n, home) {
+  if (aw === bw || !a || !b) return;
+  const win = aw > bw ? a : b, lose = win === a ? b : a;
+  (c.serL || (c.serL = [])).push([curSeason(c), comp, win, lose, `${Math.max(aw, bw)}-${Math.min(aw, bw)}`, home && win !== home ? 1 : 0, n || 0]);
+}
+function serBackfill(c) {
+  c.serL = [];
+  const nameTo = {}; NATIONS.forEach(k => { nameTo[TEAMS[k].name] = k; });
+  // Australia's series still in the results archive
+  const G = {};
+  (c.archive || []).forEach(e => { if (!e.aus || e.wc || !['test', 'odi', 't20i'].includes(e.comp) || /Final/.test(e.title || '')) return;
+    const opp = e.teams.find(t => t !== 'AUS'), k = `${e.y}|${e.comp}|${e.title || opp}`;
+    (G[k] = G[k] || { y: e.y, comp: e.comp, opp, of: e.of || 0, w: { AUS: 0, [opp]: 0 }, n: 0, home: e.teams[0] }).n++;
+    if (e.win === 0 || e.win === 1) G[k].w[e.teams[e.win]] = (G[k].w[e.teams[e.win]] || 0) + 1; });
+  Object.values(G).forEach(g => { if (g.of && g.n < g.of) return; const a = g.w.AUS || 0, b = g.w[g.opp] || 0; if (a === b) return;
+    const win = a > b ? 'AUS' : g.opp; c.serL.push([g.y, g.comp, win, win === 'AUS' ? g.opp : 'AUS', `${Math.max(a, b)}-${Math.min(a, b)}`, win !== g.home ? 1 : 0, g.of || g.n]); });
+  // background series between other nations (the last 60 to 80 kept in the news archive)
+  (c.intl || []).slice().reverse().forEach(x => {
+    const m = String(x.when || '').match(/(\d{4})-\d{2}\s*$/), y = m ? +m[1] : null; if (!y) return;
+    const comp = x.fmt === 'odi' ? 'odi' : x.fmt === 't20' ? 't20i' : 'test', t = String(x.text || '').replace(/^(ODIs|T20Is): /, '');
+    let mm = t.match(/^(.+) beat (.+) (\d+)-(\d+)$/);
+    if (mm && nameTo[mm[1]] && nameTo[mm[2]]) { c.serL.push([y, comp, nameTo[mm[1]], nameTo[mm[2]], `${mm[3]}-${mm[4]}`, 0, x.tests || 3]); return; }
+    mm = t.match(/^(.+) won (\d+)-(\d+) in (.+)$/);
+    if (mm && nameTo[mm[1]] && nameTo[mm[4]]) c.serL.push([y, comp, nameTo[mm[1]], nameTo[mm[4]], `${mm[2]}-${mm[3]}`, 1, x.tests || 3]);
+  });
+}
+const _mig510 = migrate510;
+migrate510 = function (c) { _mig510(c); if (!c.serL) { try { serBackfill(c); } catch (e) { console.warn(e); c.serL = []; } } };
+// titles won before the career began (shown when "include real history" is ticked); y is the season the title belongs to
+const REAL_TITLES = {
+  odiwc: [['WI', 1974], ['WI', 1978], ['IND', 1982], ['AUS', 1987], ['PAK', 1991], ['SL', 1995], ['AUS', 1998], ['AUS', 2002], ['AUS', 2006], ['IND', 2010], ['AUS', 2014], ['ENG', 2018], ['AUS', 2023]],
+  t20wc: [['IND', 2007], ['PAK', 2008], ['ENG', 2009], ['WI', 2012], ['SL', 2013], ['WI', 2015], ['AUS', 2021], ['ENG', 2022], ['IND', 2023], ['IND', 2025]],
+  wtc: [['NZ', 2020], ['AUS', 2022], ['SA', 2024]],
+  bbl: [['SIX', 2011], ['HEA', 2012], ['SCO', 2013], ['SCO', 2014], ['THU', 2015], ['SCO', 2016], ['STR', 2017], ['REN', 2018], ['SIX', 2019], ['SIX', 2020], ['SCO', 2021], ['SCO', 2022], ['HEA', 2023], ['HUR', 2024]]
+};
+function natEvents(c, withReal) {
+  const ev = {}; NATIONS.forEach(n => { ev[n] = []; });
+  const add = (n, y, k, w, extra) => { if (ev[n]) ev[n].push(Object.assign({ y, k, w }, extra || {})); };
+  // a series win is worth more against a strong side and away from home; the loser drops half as much
+  const str = k => clamp(((typeof NAT_TARGET !== 'undefined' && NAT_TARGET[k]) || 78) - 70, 1, 16) / 16;
+  (c.serL || []).forEach(([y, comp, win, lose, sc, away, n]) => {
+    const base = comp === 'test' ? 6 * (n >= 4 ? 1.4 : n === 3 ? 1.2 : 1) : 2;
+    add(win, y, comp, base * str(lose) * (away ? 1.3 : 1), { vs: lose, sc, away });
+    add(lose, y, comp + 'L', -base * str(win) * 0.5 * (away ? 0.8 : 1), { hidden: 1 });
+  });
+  (c.wcHistory || []).forEach(h => { const y0 = +((h.name || '').match(/(\d{4})/) || [0, 0])[1]; const y = y0 ? y0 - (h.fmt === 'odi' ? 0 : 1) : curSeason(c);
+    add(h.champ, y, h.fmt === 'odi' ? 'odiwc' : 't20wc', h.fmt === 'odi' ? 24 : 18); if (h.runner) add(h.runner, y, h.fmt === 'odi' ? 'odiru' : 't20ru', 7); });
+  (c.wtcHistory || []).forEach(h => { const y = +String(h.cycle).slice(0, 4) + 1; const m = String(h.text).match(/^(.+) are World Test Champions/);
+    if (m) { const k = NATIONS.find(n => TEAMS[n].name === m[1]); if (k) add(k, y, 'wtc', 24); }
+    else { const m2 = String(h.text).match(/^(.+) and (.+) share the title/); if (m2) [m2[1], m2[2]].forEach(nm => { const k = NATIONS.find(n => TEAMS[n].name === nm); if (k) add(k, y, 'wtc', 12, { shared: 1 }); }); } });
+  Object.entries(c.u19 || {}).forEach(([y, u]) => { if (u && u.champ) add(u.champ, +y - 1, 'u19', 2); });
+  if (withReal) ['odiwc', 't20wc', 'wtc'].forEach(k => REAL_TITLES[k].forEach(([n, y]) => add(n, y, k, k === 't20wc' ? 18 : 24, { real: 1 })));
+  else ['odiwc', 't20wc', 'wtc'].forEach(k => REAL_TITLES[k].filter(([n, y]) => y >= 2020).forEach(([n, y]) => add(n, y, k, k === 't20wc' ? 18 : 24, { real: 1, hidden: 1 })));
+  return ev;
+}
+// dynasty rating: recent titles count most, older ones fade (about 20% a season); 0 to 100
+function dynScore(list, at, decay) { return Math.max(0, list.filter(e => e.y <= at).reduce((a, e) => a + e.w * Math.pow(decay, at - e.y), 0)); }
+const dynRate = (sc, scale) => Math.round(100 * (1 - Math.exp(-sc / scale)));
+function dynTier(r) { return r >= 80 ? ['Dynasty', 'dy5'] : r >= 60 ? ['Powerhouse', 'dy4'] : r >= 40 ? ['Contender', 'dy3'] : r >= 20 ? ['Inconsistent', 'dy2'] : r >= 8 ? ['Rebuilding', 'dy1'] : ['In the wilderness', 'dy0']; }
+function bestEra(list, from, to, decay, scale) { let best = null; for (let y = from; y <= to; y++) { const r = dynRate(dynScore(list, y, decay), scale); if (!best || r > best.r) best = { y, r }; } return best && best.r > 0 ? best : null; }
+const dynBadge = r => { const [t, cl] = dynTier(r); return `<span class="dyn ${cl}" data-sort="${r}"><b>${r}</b> ${t}</span>`; };
+function streak(hist) { if (!hist.length) return null; const t = hist[0].champ; let n = 0; for (const h of hist) { if (h.champ === t) n++; else break; } return n >= 2 ? { t, n } : null; }
+function vTally() {
+  const withReal = !!ui.trReal, Y = curSeason(C), ev = natEvents(C, withReal), y0 = 2026;
+  const cnt = (n, k) => ev[n].filter(e => e.k === k && !e.hidden).length;
+  const rows = NATIONS.map(n => { const L = ev[n].filter(e => !(e.real && !e.hidden && e.y < 2020) && !(e.real && e.hidden && e.y < 2020)); const sc = dynScore(L, Y, 0.8), r = dynRate(sc, 60);
+    const majors = cnt(n, 'odiwc') + cnt(n, 't20wc') + ev[n].filter(e => e.k === 'wtc' && !e.hidden).length;
+    return { n, r, t: cnt(n, 'test'), o: cnt(n, 'odi'), t2: cnt(n, 't20i'), ow: cnt(n, 'odiwc'), tw: cnt(n, 't20wc'), wtc: ev[n].filter(e => e.k === 'wtc' && !e.hidden).length, u: cnt(n, 'u19'), majors, era: bestEra(L, y0 - 1, Y, 0.8, 60),
+      last: ev[n].filter(e => ['odiwc', 't20wc', 'wtc'].includes(e.k) && !e.hidden).sort((a, b) => b.y - a.y)[0] }; }).sort((a, b) => b.r - a.r || b.majors - a.majors);
+  const top = rows.slice(0, 3);
+  const KN = { odiwc: 'ODI World Cup', t20wc: 'T20 World Cup', wtc: 'World Test Championship' };
+  const intl = `<div class="card scroll" style="margin-bottom:14px"><div class="row"><h3>International trophy tally</h3><label class="chk"><input type="checkbox" id="trReal" ${withReal ? 'checked' : ''}> Include World Cups and WTC titles from before your career</label></div>
+    <p class="mute sm" style="margin-top:-4px">Series wins are counted from your save (earlier seasons back-filled from the results and news archives). The dynasty rating weighs recent success most: a World Cup or WTC title is worth several big Test series wins, beating strong sides and winning away count extra, series defeats pull a side down, and everything fades about 20% a season. Titles from the early 2020s count towards today's rating.</p>
+    <table><tr><th>Nation</th><th>Dynasty rating</th><th class="n">ODI WC</th><th class="n">T20 WC</th><th class="n">WTC</th><th class="n">Majors</th><th class="n">Test series</th><th class="n">ODI series</th><th class="n">T20I series</th><th class="n">U19 WC</th><th>Best era</th></tr>
+    ${rows.map(x => `<tr class="${x.n === 'AUS' ? 'us' : ''}"><td>${tName(x.n)}</td><td>${dynBadge(x.r)}</td><td class="n">${x.ow}</td><td class="n">${x.tw}</td><td class="n">${x.wtc}</td><td class="n"><b>${x.majors}</b></td><td class="n">${x.t}</td><td class="n">${x.o}</td><td class="n">${x.t2}</td><td class="n">${x.u}</td><td class="sm mute" data-sort="${x.era ? x.era.r : 0}">${x.era ? `${CR.seasonLabel(x.era.y)} (${x.era.r})` : '-'}</td></tr>`).join('')}</table></div>`;
+  const podium = `<div class="dynpod">${top.map((x, i) => { const L = ev[x.n].filter(e => !e.hidden && e.y >= Y - 4).sort((a, b) => b.y - a.y || b.w - a.w).slice(0, 4);
+    return `<div class="dyncard ${i === 0 ? 'first' : ''}"><div class="mute sm cond">${['THE BENCHMARK', 'CHASING', 'IN THE MIX'][i]}</div><div class="row"><h2>${tName(x.n)}</h2>${dynBadge(x.r)}</div>
+      <div class="sm">${L.length ? L.map(e => `<div>${CR.seasonLabel(e.y)} · ${KN[e.k] || (e.k === 'test' ? `Test series ${e.sc} v ${tName(e.vs)}${e.away ? ' (away)' : ''}` : e.k === 'odi' ? `ODI series ${e.sc} v ${tName(e.vs)}` : e.k === 't20i' ? `T20I series ${e.sc} v ${tName(e.vs)}` : e.k === 'u19' ? 'U19 World Cup' : /ru$/.test(e.k) ? 'World Cup runners-up' : e.k)}</div>`).join('') : '<span class="mute">Riding on older glories.</span>'}</div></div>`; }).join('')}</div>`;
+  // domestic
+  const domTbl = (title, hist, codes, nameOf, realKey, scale) => {
+    const H = (hist || []).slice(), Lr = withReal && realKey ? REAL_TITLES[realKey] : [];
+    const yr = H.map(h => h.y);
+    const rws = codes.map(k => { const mine = H.filter(h => h.champ === k), L = mine.map(h => ({ y: h.y, w: 10 }));
+      const real = Lr.filter(([t, y]) => t === k && !yr.includes(y)).length;
+      return { k, n: mine.length + real, inSave: mine.filter(h => h.y >= 2026).length, last: mine[0] ? mine[0].y : (Lr.filter(([t]) => t === k).map(([, y]) => y).sort((a, b) => b - a)[0] || null), r: dynRate(dynScore(L, Y, 0.75), scale), era: bestEra(L, 2024, Y, 0.75, scale) }; })
+      .sort((a, b) => b.r - a.r || b.n - a.n);
+    const st = streak(H);
+    return `<div class="card scroll"><h3>${title}</h3>${st ? `<div class="sm" style="margin:-4px 0 6px">🔥 ${esc(nameOf(st.t))} have won ${st.n} in a row.</div>` : ''}
+      <table><tr><th>Team</th><th>Dynasty</th><th class="n">Titles</th><th class="n">In your save</th><th>Last title</th><th>Best era</th></tr>
+      ${rws.map(x => `<tr><td>${esc(nameOf(x.k))}</td><td>${dynBadge(x.r)}</td><td class="n"><b>${x.n}</b></td><td class="n">${x.inSave}</td><td class="sm" data-sort="${x.last || 0}">${x.last ? CR.seasonLabel(x.last) : '-'}</td><td class="sm mute" data-sort="${x.era ? x.era.r : 0}">${x.era ? `${CR.seasonLabel(x.era.y)} (${x.era.r})` : '-'}</td></tr>`).join('')}</table></div>`;
+  };
+  const stN = k => STATES[k].name, clubN = k => BBL_CLUBS[k].name;
+  const dom = `<div class="grid2" style="margin-top:14px">${domTbl('Sheffield Shield', C.shieldHistory, CR.STATE_CODES, stN, null, 22)}${domTbl('One-Day Cup', C.odcHistory, CR.STATE_CODES, stN, null, 22)}</div>
+    <div class="grid2" style="margin-top:14px">${domTbl('BBL', C.bblHistory, CR.BBL_CODES, clubN, 'bbl', 22)}
+    <div class="card scroll"><h3>Domestic first-class around the world</h3><p class="mute sm" style="margin-top:-4px">Most titles in your save (the last 25 seasons of each competition).</p>
+      ${Object.keys(DOM).map(nat => { const S = (C.dom || {})[nat], H = S ? S.hist || [] : []; if (!H.length) return `<div class="row sm"><span>${esc(DOM[nat].name)}</span><span class="mute">No champions yet</span></div>`;
+        const t = {}; H.forEach(h => { t[h.champ] = (t[h.champ] || 0) + 1; }); const best = Object.entries(t).sort((a, b) => b[1] - a[1]).slice(0, 3);
+        return `<div class="row sm"><span><b>${esc(DOM[nat].name)}</b> <span class="mute">· holders ${esc(DOM[nat].teams[H[0].champ])}</span></span><span>${best.map(([k, v]) => `${esc(DOM[nat].teams[k])} ${v}`).join(' · ')}</span></div>`; }).join('')}</div></div>
+    <p class="mute sm" style="margin-top:8px">${withReal ? 'BBL titles include real seasons from BBL|01 (2011-12). Shield and One-Day Cup counts start from the seasons recorded in your save.' : 'Tick the box above to add real BBL titles from before your career. Shield and One-Day Cup counts start from the seasons recorded in your save.'}</p>`;
+  return `${podium}${intl}<h2 style="margin:18px 0 6px">Domestic</h2>${dom}`;
+}
+const _vResults59 = vResults;
+vResults = function () {
+  const t = ui.rtab || 'matches';
+  const tabs = `<div class="tabs" style="margin:0 0 12px"><button data-rtab="matches" class="${t === 'matches' ? 'on' : ''}">Matches and series</button><button data-rtab="tally" class="${t === 'tally' ? 'on' : ''}">🏆 Trophy tally and dynasties</button></div>`;
+  if (t === 'tally') return `<div class="wrap"><div class="top"><h2>Results</h2></div>${tabs}${vTally()}</div>`;
+  return _vResults59.call(null).replace(/(<\/div><\/div>\s*<p class="mute sm">Full scorecards)/, `</div></div>${tabs}<p class="mute sm">Full scorecards`);
+};
+const _bind510 = bind510;
+bind510 = function () {
+  _bind510();
+  document.querySelectorAll('[data-rtab]').forEach(b => b.onclick = () => { ui.rtab = b.dataset.rtab; render(); });
+  const r = document.getElementById('trReal'); if (r) r.onchange = e => { ui.trReal = e.target.checked; render(); };
+};
+</script>
+<style>
+.dyn{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 8px 2px 3px;border-radius:99px;border:1px solid var(--line);white-space:nowrap}
+.dyn b{font:700 13px 'Barlow Condensed';min-width:26px;text-align:center;border-radius:99px;padding:1px 5px}
+.dy5 b{background:linear-gradient(135deg,#ffe28a,#c99a2a);color:#241a00}.dy5{border-color:#c9a23a;color:#ffd970}
+.dy4 b{background:#e4e8ea;color:#1b1f22}.dy4{color:#e4e8ea}
+.dy3 b{background:#c9905e;color:#24130a}.dy3{color:#e0b48a}
+.dy2 b{background:#2d5a45;color:var(--ink)}.dy2{color:var(--mute)}
+.dy1 b,.dy0 b{background:#22392e;color:var(--mute)}.dy1,.dy0{color:var(--mute)}
+.dynpod{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:12px;margin-bottom:14px}@media(max-width:820px){.dynpod{grid-template-columns:1fr}}
+.dyncard{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px}.dyncard.first{border-color:#c9a23a;background:radial-gradient(400px 160px at 100% 0,#3a3220 0,var(--panel) 70%)}
+.dyncard h2{font-size:26px}
+</style>
 
 </body>
 </html>
