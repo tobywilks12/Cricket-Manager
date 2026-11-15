@@ -1181,12 +1181,14 @@ function effBowl(m, p, bowlIdx) {
   if (p.energy < 70) e -= (70 - p.energy) * 0.25;
   return e;
 }
+let FOURTH_PRESS = 2;
 function effBat(m, p, bowler, batIdx) {
   const b = p.bat, pace = isPace((bowler.bowl || PT).type);
   const wx = wxNow(m);
   const tW = pace && (wx === 'Overcast' || wx === 'Humid') ? 0.45 : 0.35;
   let e = b.tech * tW + (pace ? b.vPace : b.vSpin) * (0.75 - tW) + b.conc * 0.25;
   e += m.venue.flat * 0.5 - wear(m) * 0.5 + (wx === 'Sunny' ? 0.6 : 0);
+  if (m.innings.length === 4 && !m.lo) e -= FOURTH_PRESS; // 5.10.2: chasing on a day 4-5 pitch with the game on the line is hard
   if (isHome(m, batIdx)) e += 1;
   e += (p.form || 0) * 0.22 + (p.morale != null ? (p.morale - 60) * 0.04 : 0) + (m.teams[batIdx].lb || 0);
   if (m.teams[batIdx].cap === p.idx && (m.teams[batIdx].lead || 60) < 60) e -= 1;
@@ -1239,7 +1241,8 @@ function setPlan(m, end, idx) {
 }
 
 // ---------- Approach / field ----------
-function declareTarget(O, m) { return clamp(2.6 * O, 220, 420) * (m.days === 4 ? 0.9 : 1); }
+// 5.10.2: set a target the other side needs about 3.4 an over to reach, never less than 260 (they used to settle for 2.6 an over and lost about 1 in 7 declarations)
+function declareTarget(O, m) { return clamp(3.4 * O, 260, 480) * (m.days === 4 ? 0.9 : 1); }
 function autoApproach(m) {
   const inn = cur(m), n = m.innings.length - 1, O = oversLeft(m);
   if (n < 2) return 'normal';
@@ -1444,6 +1447,7 @@ function outBatter(m, who, how, txt) {
   if (inn.wkts >= 10) { endInnings(m, 'allout'); return; }
   nightwatchCheck(m, inn, bt);
   const next = inn.order[m.nextIn++];
+  if (next == null || !inn.cards[next]) { endInnings(m, 'allout'); return; } // 5.10.2: a side short of players is all out when the order runs out
   inn.cards[next].status = 'batting';
   if (who === m.striker) m.striker = next; else m.nonStriker = next;
 }
@@ -1579,7 +1583,8 @@ function aiDeclare(m) {
   let dec = false;
   if (n === 1) dec = inn.runs >= 620 * sc || (inn.runs >= 540 * sc && inn.wkts >= 7);
   if (n === 2) dec = (L >= 250 && inn.runs >= 550 * sc) || (L >= 420 * sc && O > 120); // 5.8: big leads declare and bowl again
-  if (n === 3) dec = (O > 150 * sc && L >= 650 * sc) || (O <= 150 * sc && O >= 45 && L >= declareTarget(O, m)) || (O >= 20 && O < 45 && L >= 4 * O + 60);
+  const st3 = sty === 'aggressive' ? 0.9 : sty === 'defensive' ? 1.12 : 1;
+  if (n === 3) dec = (O > 150 && L >= 650 * sc) || (O <= 150 && O >= 45 && L >= declareTarget(O, m) * st3) || (O >= 20 && O < 45 && L >= (5 * O + 90) * st3);
   if (dec) declare(m);
 }
 function declare(m) {
@@ -2045,6 +2050,7 @@ function loOut(m, who, how, txt) {
   inn.part = { runs: 0, balls: 0 };
   if (inn.wkts >= inn.maxW || m.nextIn >= inn.order.length) { m.innsOver = true; return; }
   const next = inn.order[m.nextIn++];
+  if (next == null || !inn.cards[next]) { m.innsOver = true; return; }
   inn.cards[next].status = 'batting';
   if (who === m.striker) m.striker = next; else m.nonStriker = next;
 }
@@ -5026,8 +5032,9 @@ const injTag = p => p.injury ? `<span class="inj" title="${esc(p.injury.what)}">
 const avgS = s => s.inn - s.no > 0 ? (s.runs / (s.inn - s.no)).toFixed(2) : (s.inn ? '-' : '-');
 
 // Saves are compressed (lz-string), about 7 times smaller than raw JSON. Old uncompressed saves still load.
-const GAME_VERSION = '5.10.1', SAVE_VERSION = 6;
+const GAME_VERSION = '5.10.2', SAVE_VERSION = 6;
 const CHANGELOG = [
+  ['5.10.2', ['Declarations: captains now set a target that needs about 3.4 an over (never less than 260) instead of 2.6, so they stop giving games away. Aggressive captains still go a bit earlier, cautious ones later.', 'Fourth-innings chases are harder: the pitch, the pressure and the scoreboard make big chases rare, as in real Tests. Draws are back to about 1 in 7.', 'Fixed a rare crash when a side ran out of batters.']],
   ['5.10.1', ['Results now has a Trophy tally and dynasties tab: every nation\'s World Cups, WTC titles, series wins and U19 titles, a dynasty rating (recent titles count most, big wins away and against strong sides count extra, defeats pull you down) and each side\'s best era. Tick a box to add real World Cups, WTC and BBL titles from before your career.', 'Domestic tallies too: Sheffield Shield, One-Day Cup and BBL titles with dynasty ratings and winning streaks, plus the most successful sides in each overseas first-class competition.']],
   ['5.10', ['Shortlist (talent watch): tap the ☆ next to any player or use Add to shortlist on his profile. Filter to your shortlist in the Players tab and in squad selection, and follow them on the Pathway.', 'Pathway redesigned: an overview with rising stars, players knocking on the door and quick links to the academy, U19s, A tours, workloads and recruits.', 'Pick your own XI for any Shield, One-Day Cup or BBL match you coach (or let the AI pick).', 'Media pressure now says who to bring in and who to drop, like for like (quick for quick, batter for batter), with a one-click swap.', 'Newspaper headlines after every international, and they are not kind when Australia play badly.', 'Series stats for every series in the Results tab, and player of the series now shows there for every series.', 'Recent form under each player now shows his latest matches across Tests and the Shield (or the white-ball equivalents), newest first.', 'Fast bowlers recover properly between Tests, and a bowler you rest for a Test comes back fresh.', 'Sorting a table is no longer lost when you open a player.', 'Squad selection shows the maximum squad size and how many batters, keepers, all-rounders and bowlers you have.', 'Overseas recruits now qualify for Australia after one season instead of three.', 'Fewer in-match breakdowns for fast bowlers.']],
   ['5.7', ['Fatigue now carries between Tests: heavy bowling workloads leave quicks below 100 for the next match, and tired players carry a higher injury risk (see Pathway, Fast-bowler workloads).', 'Media and board pressure only applies to genuine contenders, and it costs far less.', 'Player growth rebalanced: playing (especially Tests and Australia A) now always beats sitting on the bench.', 'Coach domestic matches using state abbreviations, with a Change team button.', 'Bowlers show their wickets per innings in selection, not their batting.', 'Your BBL club never plays without you: each match asks you to coach or simulate it, the matches show on the calendar in purple, and you get alerts when free agency and the draft open. You can also choose to have no club.', 'Recruit overseas players to Australia (Pathway, Overseas recruits): they qualify after three years.', 'Hidden editor: search any player and change nationality, state, BBL club, domestic team, contract, role and more, plus board confidence and reputation.', 'Player of the series and tournament, with live series leaders on the series screen.', 'Awards night and year in review at the end of every season (Allan Border Medal and more). Season stats reset each year; career stats are kept.']],
